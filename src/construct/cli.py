@@ -220,6 +220,12 @@ def test_cmd(json_salida: bool = typer.Option(False, "--json", help="Resultados 
     raise typer.Exit(_correr(comandos.test(json_salida)))
 
 
+@app.command("jonesy", context_settings={"allow_interspersed_args": False, "ignore_unknown_options": True})
+def jonesy(argumentos: list[str] = typer.Argument(None, help="Argumentos para jonesy (por ejemplo, un archivo).")) -> None:
+    """Abre jonesy, el IDE de terminal de la cátedra, dentro de la VM y en esta terminal (RF-05)."""
+    raise typer.Exit(_correr(comandos.jonesy(argumentos or [])))
+
+
 @app.command("sync")
 def sync(
     accion: str = typer.Argument("todo", metavar="[subir|bajar|artefactos|estado]",

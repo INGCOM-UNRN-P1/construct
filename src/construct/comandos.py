@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -20,7 +20,7 @@ from typing import Any
 from rich.console import Console
 from rich.markup import escape
 
-from construct.consola import conectar_terminal
+from construct.consola import conectar_pty, conectar_terminal
 from construct.core import orquestador as orq
 from construct.core import telemetry as telemetria
 from construct.core import tool_bridge as puente
@@ -31,6 +31,7 @@ from construct.core.protocolo import Marco, Tipo
 from construct.core.sync_manager import ErrorDeSync, SyncManager
 from construct.platform import binarios, host
 from construct.platform.paths import directorios
+from construct.platform.terminal import terminal_cruda
 
 consola = Console(stderr=True, highlight=False)
 VARIABLE_DEV = "CONSTRUCT_DEV"
@@ -274,6 +275,37 @@ async def sync(accion: str, como_json: bool) -> int:
     if traidos:
         consola.print("[green]✓[/green] Cambios de la VM incorporados.")
     return 0
+
+
+# --- Passthrough a jonesy (RF-05, PLAN Fase 5) -------------------------------------------------
+
+
+def entorno_de_terminal(entorno: Mapping[str, str]) -> dict[str, str]:
+    """TERM y COLORTERM del Host para la pty de la VM (Windows no define TERM: se usa xterm-256color)."""
+    colores = entorno.get("COLORTERM") or ("truecolor" if entorno.get("WT_SESSION") else "")
+    return {"TERM": entorno.get("TERM") or "xterm-256color", "LANG": "C.UTF-8",
+            **({"COLORTERM": colores} if colores else {})}
+
+
+async def jonesy(argumentos: Sequence[str]) -> int:
+    """jonesy en la VM con esta terminal en modo crudo; al salir trae lo que se editó allá."""
+    terminal = terminal_cruda(host().sistema)  # antes de arrancar nada: sin terminal no tiene sentido
+    async with abrir_proyecto() as proyecto:
+        filas, columnas = terminal.tamano()
+        proceso = await proyecto.canal.ejecutar(["jonesy", *argumentos], cwd=proyecto.vm, pty=True, filas=filas,
+                                                columnas=columnas, env=entorno_de_terminal(os.environ))
+        if proceso.error:
+            consola.print(f"[bold red]Error:[/bold red] {escape(proceso.error)}")
+            return 1
+        codigo = await conectar_pty(proceso, terminal)
+        traidos, conflictos = await proyecto.sync.bajar()
+    if conflictos:
+        consola.print("[bold yellow]Lo que editaste en jonesy choca con cambios tuyos en:[/bold yellow] "
+                      + ", ".join(conflictos) + ". Resolvelos y ejecutá `construct sync`.")
+        return 1
+    if traidos:
+        consola.print("[green]✓[/green] Cambios de jonesy incorporados a tus archivos.")
+    return codigo
 
 
 # --- Modo desarrollo (PLAN §3.4) --------------------------------------------------------------

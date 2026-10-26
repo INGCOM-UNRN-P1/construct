@@ -3,6 +3,8 @@
 La entrada estándar se lee en un hilo (funciona igual con la consola de Windows, una terminal
 POSIX o una tubería) y Ctrl+C no corta construct: se reenvía como SIGINT al programa en la VM,
 como si corriera en la terminal. Un segundo Ctrl+C sí lo abandona (la sesión lo mata).
+
+`conectar_pty` es el modo de `construct jonesy`: la terminal en crudo unida a una pty de la VM.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from typing import Any, BinaryIO
 
 from construct.core.channel import ProcesoRemoto
 from construct.core.protocolo import Marco, Tipo
+from construct.platform.terminal import TerminalCruda, modo_crudo
 
 
 def _leer_entrada(loop: asyncio.AbstractEventLoop, cola: asyncio.Queue[bytes], entrada: BinaryIO) -> None:
@@ -31,7 +34,10 @@ def _leer_entrada(loop: asyncio.AbstractEventLoop, cola: asyncio.Queue[bytes], e
             datos = os.read(descriptor, 65536) if descriptor is not None else entrada.read(65536)
         except (OSError, ValueError):
             datos = b""
-        loop.call_soon_threadsafe(cola.put_nowait, datos)
+        try:
+            loop.call_soon_threadsafe(cola.put_nowait, datos)
+        except RuntimeError:
+            return  # el loop ya cerró (construct terminó): lo leído no tiene a quién ir
         if not datos:
             return
 
@@ -96,4 +102,44 @@ async def conectar_terminal(proceso: ProcesoRemoto, *, entrada: BinaryIO | None 
             await tarea_entrada
         if anterior is not None:
             signal.signal(signal.SIGINT, anterior)
+    return proceso.codigo
+
+
+async def conectar_pty(proceso: ProcesoRemoto, terminal: TerminalCruda, *, entrada: BinaryIO | None = None,
+                       salida: BinaryIO | None = None) -> int:
+    """Une la terminal del Host, en modo crudo, con un proceso de la VM que tiene pty (RF-05).
+
+    Cada byte va tal cual (Ctrl+C es 0x03 y lo interpreta la pty de la VM), el tamaño se avisa al
+    empezar y en cada cambio, y la terminal se restaura siempre: también si se cae la VM.
+    """
+    entrada = entrada if entrada is not None else sys.stdin.buffer
+    salida = salida if salida is not None else sys.stdout.buffer
+    loop = asyncio.get_running_loop()
+    cola: asyncio.Queue[bytes] = asyncio.Queue()
+
+    def al_cambiar(filas: int, columnas: int) -> None:
+        loop.create_task(proceso.cambiar_tamano(filas, columnas))
+
+    async def bombear_entrada() -> None:
+        while datos := await cola.get():  # vacío: se cerró la entrada del Host; la pty sigue
+            await proceso.escribir(datos)
+
+    async def bombear_salida() -> None:
+        while (marco := await proceso.siguiente()) is not None:
+            if marco.tipo is Tipo.SALIDA:
+                salida.write(marco.datos)
+                salida.flush()
+
+    with modo_crudo(terminal):
+        await proceso.cambiar_tamano(*terminal.tamano())
+        detener = terminal.observar_tamano(loop, al_cambiar)
+        threading.Thread(target=_leer_entrada, args=(loop, cola, entrada), daemon=True).start()
+        tarea_entrada = loop.create_task(bombear_entrada())
+        try:
+            await bombear_salida()
+        finally:
+            detener()
+            tarea_entrada.cancel()
+            with contextlib.suppress(asyncio.CancelledError, ConnectionError):
+                await tarea_entrada
     return proceso.codigo
