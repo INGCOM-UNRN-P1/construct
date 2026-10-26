@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    # PLAN §5.1: toda la lógica del Host se prueba en las tres plataformas con fakes.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+        python-version: ["3.12", "3.13"]
+    env:
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Sincronizar dependencias
+        run: uv sync
+
+      - name: Ejecutar suite de pruebas
+        run: uv run pytest -q
+
+      - name: Diagnóstico del runner (informativo)
+        run: uv run construct doctor --json
+        continue-on-error: true
+
+  calidad:
+    name: Lint y tipos
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run --with ruff ruff check src tests
+      - run: uv run --with mypy mypy
