@@ -5,8 +5,9 @@ IDE pedagógico y orquestador de máquina virtual del perfil `estudiante` de Pro
 de las herramientas dentro de una VM Alpine acelerada por hardware, con la misma experiencia en
 Windows, macOS y Linux.
 
-> **Estado:** en desarrollo (Fase 1 de [`PLAN.md`](PLAN.md)). Por ahora está disponible
-> `construct doctor`, que verifica que tu computadora esté lista para correr la VM.
+> **Estado:** en desarrollo (Fase 1 de [`PLAN.md`](PLAN.md) completa). Por ahora están
+> `construct setup`, que prepara la computadora y baja la imagen de la VM, y `construct doctor`,
+> que verifica que esté todo listo. Las imágenes se publican a partir de la Fase 2.
 
 ## Requisitos
 
@@ -27,7 +28,14 @@ En las Mac con Apple Silicon la VM usa un Guest `aarch64` (acelerado); en el res
    uv tool install git+https://github.com/INGCOM-UNRN-P1/construct
    ```
 
-3. Verificá el entorno; cada problema viene con el comando para resolverlo en tu sistema:
+3. Prepará la computadora: crea las carpetas, baja la imagen de la VM y te dice qué falta
+   instalar, con el comando exacto para tu sistema:
+
+   ```bash
+   construct setup
+   ```
+
+4. Verificá que quedó todo listo:
 
    ```bash
    construct doctor
@@ -36,7 +44,10 @@ En las Mac con Apple Silicon la VM usa un Guest `aarch64` (acelerado); en el res
 ## Uso
 
 ```bash
-construct doctor            # diagnóstico del Host (QEMU, aceleración, git, disco, memoria)
+construct setup             # carpetas, diagnóstico y descarga verificada (SHA-256) de la imagen
+construct setup --forzar    # vuelve a bajar la imagen
+construct setup -m RUTA     # usa otro manifiesto de imágenes (URL o archivo local)
+construct doctor            # diagnóstico del Host (QEMU, aceleración, imagen, git, disco, memoria)
 construct doctor --json     # el mismo informe en JSON (sobre común de yutani)
 construct doctor --dev      # además, lo que necesita el modo desarrollo (GDB del Host)
 construct -v                # versión
@@ -61,7 +72,11 @@ automatico = true
 habilitado = false
 ```
 
-`CONSTRUCT_HOME` reemplaza las carpetas de datos, estado, caché y logs por una sola.
+Variables de entorno:
+
+- `CONSTRUCT_HOME`: reemplaza las carpetas de datos, estado, caché y logs por una sola.
+- `CONSTRUCT_MANIFIESTO`: manifiesto de imágenes por defecto de `construct setup`.
+- `http_proxy` / `https_proxy`: se respetan para las descargas (nunca para `localhost`).
 
 ## Desarrollo
 

@@ -219,9 +219,10 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   2. Paquete `construct.platform` completo (§2), con cada módulo detrás de una interfaz y una implementación por SO; las implementaciones se seleccionan en `platform/__init__.py`.
   3. `cli.py` sobre `TyperConErrores` con `ui`, `jonesy`, `doctor`, `setup`, `vm` (`start`/`stop`/`status`), `sync` (con los subcomandos de §3.3), `build`, `check`, `test`, `run` y el grupo `dev` (oculto en `--help` salvo con modo desarrollo activo). `-h`/`--help` en español y `-v`/`--version` (RF-02). Forzar UTF-8 en `stdout`/`stderr` al inicio.
   4. `core/doctor.py` con checks del Host: SO y arquitectura real, QEMU encontrado y versión, acelerador disponible y con permisos, Git, imagen descargada y con `sha256` válido, espacio en disco, RAM libre, WSL/virtualización anidada. Cuando la VM está arriba, encadena `mother doctor --json` en el Guest. Salida `{"schema_version": "1.0", "estado": ..., "checks": [...]}`; cada check fallido trae la **instrucción de remediación específica del SO/distro** (`installer_hints.py`).
-  5. `construct setup`: descarga la imagen correspondiente a la arquitectura (release de GitHub con `sha256`), crea los discos y, si falta QEMU, imprime el comando exacto (`winget install`, `brew install qemu`, `apt`/`dnf`/`pacman`). No instala nada con privilegios por su cuenta.
+  5. `construct setup`: descarga la imagen correspondiente a la arquitectura desde un manifiesto publicado (`imagenes.json` en el release de GitHub, con `sha256` por archivo y versión de protocolo; ver `core/imagenes.py`) y, si falta QEMU, imprime el comando exacto (`winget install`, `brew install qemu`, `apt`/`dnf`/`pacman`). No instala nada con privilegios por su cuenta. Los discos de trabajo se crean en la Fase 3, junto con `vm_manager`.
   6. `tests/test_cli_contract.py` y `tests/platform/` con pruebas unitarias de cada implementación usando *fakes* (p. ej. simular `/dev/kvm` ausente, `WinHvPlatform.dll` inexistente, Rosetta).
 * **Checkpoint:** `uv run pytest` en verde en Linux, Windows y macOS (CI, §5); `construct doctor --json` válido en las tres.
+* **Estado (26/10/2026):** implementada. Verificada en Linux (Fedora 44, KVM); falta correr el CI en Windows y macOS al publicar el repositorio. El encadenado con `mother doctor --json` del Guest queda para la Fase 3.
 
 ### Fase 2: Imagen de Máquina Virtual Multiarquitectura y Agente Guest
 
@@ -231,7 +232,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   3. `vm_image/build_vm.sh`: genera kernel + `rootfs.qcow2` por arquitectura. **Herramienta exclusiva de mantenedores, sólo corre en Linux/CI**; los alumnos nunca construyen la imagen.
   4. `guest_agent/construct_daemon.c` (enlazado estático con musl): protocolo de §3.2, despacho de herramientas a través de `nostromo.ejecutar_comando_aislado`, PTY con `forkpty` + mensajes de resize, GDB/MI, telemetría, transferencia de archivos, watchdog de canal.
   5. `guest_agent/libconstruct_preload.c`: interposición de `malloc`/`free`/`fopen`/`fclose`, deshabilitada en modo `tetsuo`.
-  6. Pipeline de CI que publica las imágenes como *release assets* con `sha256` y versión de protocolo.
+  6. Pipeline de CI que publica las imágenes como *release assets* junto con el manifiesto `imagenes.json` que consume `construct setup` (esquema en `core/imagenes.py`).
 * **Checkpoint:** ambas imágenes arrancan con el agente completo y pasan `mother doctor --json` dentro del Guest.
 
 ### Fase 3: Orquestación QEMU, Puentes de Herramientas y Sincronización

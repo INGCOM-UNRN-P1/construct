@@ -12,3 +12,9 @@ versiones según [SemVer](https://semver.org/lang/es/).
   búsqueda de QEMU/Git/GDB, carpetas por sistema y consola UTF-8).
 - **doctor**: `construct doctor [--json] [--dev]` con remediación por sistema y distro.
 - **config**: lectura y validación de `project.toml` (`[vm]`, `[sync]`, `[dev]`).
+- **setup**: `construct setup` prepara las carpetas, diagnostica el Host y baja la imagen del Guest de su
+  arquitectura desde un manifiesto publicado, con verificación SHA-256 e inventario local.
+- **doctor**: chequeo de la imagen del Guest instalada.
+- **platform**: procesos hijos que mueren con construct (Job Objects en Windows, `PR_SET_PDEATHSIG` en
+  Linux), apertura de artefactos y reproducción de `.wav` con las herramientas del Host, y rutas cortas
+  8.3 en Windows.
