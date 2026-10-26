@@ -1,0 +1,93 @@
+name: Imágenes del Guest
+
+# Construye las imágenes x86_64 y aarch64 (decisión D1), las arranca de verdad y, con un tag
+# imagen-vX.Y.Z, las publica junto con el imagenes.json que consume `construct setup`.
+on:
+  push:
+    tags: ["imagen-v*"]
+  pull_request:
+    paths: ["vm_image/**", ".github/workflows/imagenes.yml"]
+  workflow_dispatch:
+
+jobs:
+  construir:
+    name: Imagen ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            # Runner ARM nativo: sin emulación al compilar jonesy ni al instalar el perfil.
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versión
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/imagen-v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/imagen-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Construir
+        run: vm_image/build_vm.sh --arch ${{ matrix.arch }} --version ${{ steps.version.outputs.version }} --salida dist/imagenes
+
+      - name: Habilitar KVM (si el runner lo expone)
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+            sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          fi
+
+      - name: Instalar QEMU
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.arch }}" = x86_64 ]; then sudo apt-get install -y qemu-system-x86; else sudo apt-get install -y qemu-system-arm; fi
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Arrancar la imagen (KVM, o TCG si no hay)
+        env:
+          CONSTRUCT_IMAGEN_PRUEBA: dist/imagenes/${{ matrix.arch }}
+        run: |
+          uv sync
+          uv run construct doctor || true
+          uv run pytest tests/e2e -v -s
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imagen-${{ matrix.arch }}
+          path: dist/imagenes/${{ matrix.arch }}
+          retention-days: 7
+
+  publicar:
+    name: Publicar release
+    if: startsWith(github.ref, 'refs/tags/imagen-v')
+    needs: construir
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: descargas
+      - name: Manifiesto
+        run: |
+          mkdir -p dist/imagenes
+          mv descargas/imagen-x86_64 dist/imagenes/x86_64
+          mv descargas/imagen-aarch64 dist/imagenes/aarch64
+          python3 vm_image/generar_manifiesto.py dist/imagenes --version "${GITHUB_REF#refs/tags/imagen-v}" --salida dist/release
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/release/* --title "Imágenes del Guest ${GITHUB_REF_NAME#imagen-}" \
+            --notes "Imágenes x86_64 y aarch64 del Guest de construct. Se instalan con \`construct setup\`."
