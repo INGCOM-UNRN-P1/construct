@@ -132,8 +132,8 @@ def test_usuario_y_workspace(vm: tuple[Conexion, dict[str, Any], float]) -> None
 def test_cgroups_v2(vm: tuple[Conexion, dict[str, Any], float]) -> None:
     conexion, _, _ = vm
     # (el stat de busybox no conoce el nombre de cgroup2: se mira /proc/mounts)
-    salida, _, _ = conexion.ejecutar(2, ["sh", "-c", "grep ' /sys/fs/cgroup ' /proc/mounts; "
-                                                     "cat /sys/fs/cgroup/cgroup.controllers"])
+    script = "grep ' /sys/fs/cgroup ' /proc/mounts; cat /sys/fs/cgroup/cgroup.controllers"
+    salida, _, _ = conexion.ejecutar(2, ["sh", "-c", script])
     montaje, controladores = salida.splitlines()[:2]
     assert montaje.split()[2] == "cgroup2"
     assert {"cpu", "memory", "pids"} <= set(controladores.split())
