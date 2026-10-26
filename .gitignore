@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# Artefactos que construct descarga del Guest en cada proyecto.
+.construct/
+# Imágenes de VM generadas localmente con vm_image/build_vm.sh.
+*.qcow2

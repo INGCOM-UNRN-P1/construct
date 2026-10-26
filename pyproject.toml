@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "construct"
+version = "0.1.0"
+description = "IDE pedagógico y orquestador de máquina virtual Alpine para el perfil estudiante de Programación 1"
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+authors = [
+    {name = "Martín René Vilugrón", email = "martinvilu@gmail.com"}
+]
+maintainers = [
+    {name = "Programación I [B6003] - UNRN Andina"}
+]
+requires-python = ">=3.12"
+keywords = ["education", "c-programming", "pedagogical-tools", "unrn", "qemu", "ide"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0.0",
+    # Directorios de datos, caché y estado de cada sistema operativo (PLAN §2.2).
+    "platformdirs>=4.0",
+    # Núcleo común del ecosistema (LINEAMIENTOS §3.2 y §3.4): contrato CLI, doctor, hallazgos e IA.
+    "yutani @ git+https://github.com/INGCOM-UNRN-P1/yutani@6f95ad93c661adb4493414c6cc57534a18e8f2e0",
+]
+
+[project.urls]
+Homepage = "https://github.com/INGCOM-UNRN-P1/construct"
+Repository = "https://github.com/INGCOM-UNRN-P1/construct.git"
+Issues = "https://github.com/INGCOM-UNRN-P1/construct/issues"
+
+[project.scripts]
+construct = "construct.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/construct"]
+
+[tool.hatch.metadata]
+# Las dependencias del ecosistema son referencias directas a git (nunca por nombre en PyPI).
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer declara los parámetros con llamadas en los valores por defecto.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+ignore_missing_imports = true
+warn_unused_ignores = true
