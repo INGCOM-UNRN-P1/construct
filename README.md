@@ -5,10 +5,9 @@ IDE pedagógico y orquestador de máquina virtual del perfil `estudiante` de Pro
 de las herramientas dentro de una VM Debian acelerada por hardware, con la misma experiencia en
 Windows, macOS y Linux.
 
-> **Estado:** en desarrollo (Fases 1 y 2 de [`PLAN.md`](PLAN.md)). Por ahora están
-> `construct setup`, que prepara la computadora y baja la imagen de la VM, y `construct doctor`,
-> que verifica que esté todo listo. La imagen y su agente ya existen; manejar la VM desde la CLI
-> llega con la Fase 3.
+> **Estado:** en desarrollo (Fases 1 a 3 de [`PLAN.md`](PLAN.md)). Todo se usa desde la línea
+> de comandos: preparar la computadora, compilar, auditar, ejecutar, probar y sincronizar con la
+> VM. El IDE en la terminal (`construct ui`) llega con la Fase 4.
 
 ## Requisitos
 
@@ -48,11 +47,31 @@ En las Mac con Apple Silicon la VM usa un Guest `aarch64` (acelerado); en el res
 construct setup             # carpetas, diagnóstico y descarga verificada (SHA-256) de la imagen
 construct setup --forzar    # vuelve a bajar la imagen
 construct setup -m RUTA     # usa otro manifiesto de imágenes (URL o archivo local)
-construct doctor            # diagnóstico del Host (QEMU, aceleración, imagen, git, disco, memoria)
+construct doctor            # diagnóstico del Host y, con la VM arriba, `mother doctor` adentro
 construct doctor --json     # el mismo informe en JSON (sobre común de yutani)
 construct doctor --dev      # además, lo que necesita el modo desarrollo (GDB del Host)
 construct -v                # versión
 ```
+
+En la carpeta del trabajo práctico (la VM arranca sola la primera vez y queda prendida un rato):
+
+```bash
+construct build             # F7: daedalus con -Wall -Wextra -Werror -pedantic -std=c11
+construct check             # F8: ripley (gaff, spunkmeyer y kaneda)
+construct fix               # arreglos automáticos de gaff, de vuelta en tus archivos
+construct run [-- args]     # F5: ejecuta con telemetría; si se cae, hal explica por qué
+construct run --tetsuo      # Shift+F5: con AddressSanitizer y UBSan explicados por tetsuo
+construct run --aislado     # dentro del sandbox de nostromo
+construct test              # F6: suites de treadstone (tests/test_*.c)
+construct sync              # sube, baja con fusión de 3 vías y trae artefactos (.bmp, .wav, …)
+construct sync estado       # también subir, bajar y artefactos
+construct vm start|stop|status
+construct vm exec -- CMD    # un comando dentro de la VM (diagnóstico)
+```
+
+`construct run` avisa, además, de lo que vio la telemetría: espera activa, posibles deadlocks,
+archivos sin `fclose` y memoria sin liberar, con su línea. Los artefactos quedan en
+`.construct/artefactos/`.
 
 ## Configuración (`project.toml`)
 
@@ -97,6 +116,10 @@ construct setup -m dist/release/imagenes.json                          # la inst
 
 El workflow `imagenes.yml` construye y prueba las dos arquitecturas y, con un tag `imagen-vX.Y.Z`,
 publica el release que `construct setup` baja por defecto.
+
+Modo desarrollo (`[dev] habilitado = true` o `CONSTRUCT_DEV=1`): `construct dev gdb [binario]`
+abre el GDB del Host contra un `gdbserver` del Guest, con el sysroot de la VM y las rutas de tus
+fuentes; `construct dev gdbserver` es el puente que usa (`target remote | …`).
 
 Ver [`AGENTS.md`](AGENTS.md) para las convenciones de trabajo y [`PLAN.md`](PLAN.md) para la hoja de ruta.
 

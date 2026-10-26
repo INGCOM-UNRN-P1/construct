@@ -222,7 +222,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   5. `construct setup`: descarga la imagen correspondiente a la arquitectura desde un manifiesto publicado (`imagenes.json` en el release de GitHub, con `sha256` por archivo y versión de protocolo; ver `core/imagenes.py`) y, si falta QEMU, imprime el comando exacto (`winget install`, `brew install qemu`, `apt`/`dnf`/`pacman`). No instala nada con privilegios por su cuenta. Los discos de trabajo se crean en la Fase 3, junto con `vm_manager`.
   6. `tests/test_cli_contract.py` y `tests/platform/` con pruebas unitarias de cada implementación usando *fakes* (p. ej. simular `/dev/kvm` ausente, `WinHvPlatform.dll` inexistente, Rosetta).
 * **Checkpoint:** `uv run pytest` en verde en Linux, Windows y macOS (CI, §5); `construct doctor --json` válido en las tres.
-* **Estado (26/10/2026):** implementada. Verificada en Linux (Fedora 44, KVM); falta correr el CI en Windows y macOS al publicar el repositorio. El encadenado con `mother doctor --json` del Guest queda para la Fase 3.
+* **Estado (26/10/2026):** implementada. Verificada en Linux (Fedora 44, KVM); falta correr el CI en Windows y macOS al publicar el repositorio. El encadenado con `mother doctor --json` del Guest se hizo en la Fase 3.
 
 ### Fase 2: Imagen de Máquina Virtual Multiarquitectura y Agente Guest
 
@@ -234,7 +234,8 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   5. `guest_agent/libconstruct_preload.c`: pasa a la Fase 3, junto con `telemetry.py`, que es quien consume sus datos.
   6. Pipeline de CI que publica las imágenes como *release assets* junto con el manifiesto `imagenes.json` que consume `construct setup` (esquema en `core/imagenes.py`).
 * **Checkpoint:** ambas imágenes arrancan con el agente completo y pasan `mother doctor --json` dentro del Guest.
-* **Estado (26/10/2026):** implementada. La imagen `x86_64` se construyó y arrancó en Fedora 44 con KVM: handshake a los 3,15 s, perfil estudiante completo (`mother doctor` en verde), librerías C enlazando y cgroups v2 (`tests/e2e/test_arranque.py`, 21 chequeos). La `aarch64` la construye y prueba el workflow `imagenes.yml` en un runner ARM nativo; todavía no corrió. Pendientes para la cátedra: las herramientas se instalan desde la rama principal de cada repo hasta que `ecosistema.toml` fije la matriz del cuatrimestre, y `bitmaps` y `sonido` llaman igual (`libreria.h`) a su cabecera, así que van en `/usr/local/include/bitmaps/` y `/usr/local/include/sonido/`.
+* **Cambio (26/10/2026):** el Guest pasa de Alpine a **Debian trixie slim con systemd** (`vm_image/Dockerfile.debian`): el gcc de Alpine (musl) no trae libasan ni libubsan, sin los que no funcionan `tetsuo` ni el paso ASan de `ripley` (RF-04). Las tareas 1, 2 y 4 se leen con ese reemplazo: `cgroups v2` sin configuración (systemd), agente compilado con glibc y unidades de systemd en lugar de servicios de OpenRC. Con Debian el handshake tarda 3,96 s en Fedora 44 con KVM.
+* **Estado (26/10/2026):** implementada. La imagen `x86_64` se construyó y arrancó en Fedora 44 con KVM: handshake a los 3,15 s (con Alpine), perfil estudiante completo (`mother doctor` en verde), librerías C enlazando y cgroups v2 (`tests/e2e/test_arranque.py`, 21 chequeos). La `aarch64` la construye y prueba el workflow `imagenes.yml` en un runner ARM nativo; todavía no corrió. Pendientes para la cátedra: las herramientas se instalan desde la rama principal de cada repo hasta que `ecosistema.toml` fije la matriz del cuatrimestre, y `bitmaps` y `sonido` llaman igual (`libreria.h`) a su cabecera, así que van en `/usr/local/include/bitmaps/` y `/usr/local/include/sonido/`.
 
 ### Fase 3: Orquestación QEMU, Puentes de Herramientas y Sincronización
 
@@ -247,6 +248,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   6. `core/telemetry.py`: consumo del canal `tlm` y emisión de anomalías como `hallazgos` (RF-06/RF-07).
   7. `core/events.py`: comandos y eventos inmutables entre core y UI.
 * **Checkpoint:** desde la CLI, en las tres plataformas, `construct build` y `construct check` devuelven hallazgos con rutas del Host correctas; `construct run` ejecuta un programa interactivo con `Ctrl+C` funcional; `construct sync` resuelve un conflicto de prueba; `construct dev gdb` funciona en la máquina de desarrollo.
+* **Estado (26/10/2026):** implementada. Verificada en Linux (Fedora 44, KVM) contra la imagen Debian: `build`, `check`, `run` (con telemetría, `--aislado`, `--tetsuo` y post-mortem de `hal`) y `construct dev gdb` con el GDB del Host (`fix`, `test` y `sync` se habían probado contra la imagen Alpine); `construct doctor` encadena `mother doctor --json` del Guest. El orquestador de la interfaz (`core/orquestador.py`) atiende los comandos de `core/events.py`. Falta el checkpoint en Windows y macOS. Pendiente de los satélites: bajo el sandbox de `nostromo` se pierde el informe de ASan, así que `tetsuo` no trae el detalle de los sanitizers (construct lo informa como falla sin detalle).
 
 ### Fase 4: Frontend TUI en Textual
 
@@ -322,4 +324,5 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
 3. **§5/§6:** keymap con alternativas y paleta de comandos para atajos no transmitibles (D4).
 4. **§6.1 RF-02:** se agregan los subcomandos `setup`, `vm` y `dev` al contrato CLI.
 5. **§6.4 RF-08:** la sincronización es responsabilidad exclusiva del comando `construct sync` (`subir`, `bajar`, `artefactos`, `estado`); sin carpetas compartidas (D5).
-6. **§7 Estructura:** se agregan `src/construct/platform/`, `src/construct/core/channel.py`, `src/construct/ui/keymap.py`, `tests/platform/` y `docs/fase0_resultados.md`.
+6. **§1, §4 y §7 Guest:** Debian en lugar de Alpine (`vm_image/Dockerfile.debian`), porque el gcc de Alpine no trae AddressSanitizer ni UBSan (ver Fase 2).
+7. **§7 Estructura:** se agregan `src/construct/platform/`, `src/construct/core/channel.py`, `src/construct/core/orquestador.py`, `src/construct/ui/keymap.py`, `tests/platform/` y `docs/fase0_resultados.md`.
