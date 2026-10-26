@@ -21,6 +21,7 @@ from construct.core.sync_manager import ErrorDeSync, SyncManager, nombre_en_vm, 
 from construct.platform.paths import directorios
 
 GIT = shutil.which("git") or "git"
+ESPERA_APAGADO_S = 60
 
 
 @asynccontextmanager
@@ -45,7 +46,8 @@ async def agente(binario: Path, carpeta: Path) -> AsyncIterator[Canal]:
         yield canal
         with contextlib.suppress(ErrorDeCanal):
             await canal.apagar()
-            await asyncio.get_running_loop().run_in_executor(None, proceso.wait, 10)
+            # Al apagarse el agente llama a sync(2), que con el disco del Host ocupado tarda.
+            await asyncio.get_running_loop().run_in_executor(None, proceso.wait, ESPERA_APAGADO_S)
     finally:
         if proceso.poll() is None:
             proceso.kill()
@@ -54,7 +56,7 @@ async def agente(binario: Path, carpeta: Path) -> AsyncIterator[Canal]:
 
 
 def correr(corrutina: Callable[[], Awaitable[Any]]) -> Any:
-    return asyncio.run(asyncio.wait_for(corrutina(), 60))
+    return asyncio.run(asyncio.wait_for(corrutina(), 60 + ESPERA_APAGADO_S))
 
 
 # --- Canal ------------------------------------------------------------------------------------
