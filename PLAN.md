@@ -254,11 +254,12 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
 
 * **Tareas:**
   1. `ui/app.py`: layout de 4 cuadrantes (SPEC §5) y barra de estado que muestra el acelerador real (`KVM`/`WHPX`/`HVF`/`TCG — modo compatibilidad`).
-  2. **Keymap portable** (`ui/keymap.py`, nuevo): atajos de la SPEC como primarios y alternativas para terminales que no los transmiten; p. ej. autofix `Ctrl+.` con alternativa `Alt+Enter`; `F9`–`F11` con alternativas `Ctrl+B`/`Ctrl+N`/`Ctrl+I` (definitivas tras pruebas en la Fase 0/4). Paleta de comandos `Ctrl+P` con todas las acciones. Sobrescribible en `project.toml`.
+  2. **Keymap portable** (`ui/keymap.py`, nuevo): atajos de la SPEC como primarios y alternativas para terminales que no los transmiten; p. ej. autofix `Ctrl+.` con alternativa `Alt+Enter`; `F9`–`F11` con alternativas `Ctrl+B`/`Ctrl+N`/`Ctrl+O` (`Ctrl+I` se descartó: la terminal lo manda igual que Tab). Paleta de comandos `Ctrl+P` con todas las acciones. Sobrescribible en `project.toml`.
   3. Widgets de la SPEC §7: `code_editor` (gutter de `hallazgos.json`, guardado siempre en LF y UTF-8), `bishop_view`, `treadstone_view`, `hal_postmortem_modal`, `resource_monitor`, `sync_conflict_modal`.
   4. `media_preview`: BMP en half-block TrueColor con degradación a 256 colores según capacidades de la terminal; WAV con forma de onda y reproducción vía `platform.opener` (`winsound` / `afplay` / `pw-play`→`paplay`→`aplay`).
   5. "Explicar este hallazgo" (RF-09) llamando a `yutani.ia` **desde el Host** (así funciona con `ollama`/`llama.cpp` local del alumno sin dar red al Guest), enviando sólo la línea afectada y el objeto del hallazgo.
 * **Checkpoint:** recorrido completo (editar → `F7` → `F8` → `F6` → `F5` → crash con modal de `hal`) en Windows Terminal, conhost, Terminal.app, iTerm2, GNOME Terminal y Konsole, con todas las acciones alcanzables por atajo o paleta.
+* **Estado (26/10/2026):** implementada. Además de lo pedido: depuración con el GDB del Guest desde el orquestador (breakpoints, pasos, variables y pila), foto de `bishop` en la línea del cursor (`F12`), «Guardar reproductor» de `hal`, resolución de conflictos por archivo en el `SyncManager` y bloqueo de la ejecución ante funciones prohibidas de `kaneda`. Verificada con tests *headless* de Textual y manejando la app contra la VM Debian con KVM (auditoría, ejecución interactiva con telemetría, BMP, depuración y `bishop`). **Falta el checkpoint en terminales reales**: no se probó todavía en ninguna de las seis terminales de la lista, así que las alternativas del keymap siguen sin confirmar.
 
 ### Fase 5: Modo Passthrough `construct jonesy` (RF-05)
 
@@ -325,4 +326,4 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
 4. **§6.1 RF-02:** se agregan los subcomandos `setup`, `vm` y `dev` al contrato CLI.
 5. **§6.4 RF-08:** la sincronización es responsabilidad exclusiva del comando `construct sync` (`subir`, `bajar`, `artefactos`, `estado`); sin carpetas compartidas (D5).
 6. **§1, §4 y §7 Guest:** Debian en lugar de Alpine (`vm_image/Dockerfile.debian`), porque el gcc de Alpine no trae AddressSanitizer ni UBSan (ver Fase 2).
-7. **§7 Estructura:** se agregan `src/construct/platform/`, `src/construct/core/channel.py`, `src/construct/core/orquestador.py`, `src/construct/ui/keymap.py`, `tests/platform/` y `docs/fase0_resultados.md`.
+7. **§7 Estructura:** se agregan `src/construct/platform/`, `src/construct/core/channel.py`, `src/construct/core/orquestador.py`, `src/construct/core/explicar.py`, `src/construct/ui/nucleo.py`, `src/construct/ui/medios.py`, los widgets `hallazgos_view.py` y `aviso_modal.py`, `src/construct/ui/keymap.py`, `tests/platform/` y `docs/fase0_resultados.md`.

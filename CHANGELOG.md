@@ -34,6 +34,12 @@ versiones según [SemVer](https://semver.org/lang/es/).
 - **doctor**: encadena `mother doctor --json` del perfil estudiante cuando la VM está corriendo.
 - **bridge**: comandos y eventos inmutables (`core/events.py`) y el orquestador que los atiende para la
   interfaz.
+- **ui**: `construct ui`, el IDE en Textual de cuatro cuadrantes: editor con gutter de hallazgos,
+  depuración (F9–F11), memoria de bishop, visor de `.bmp`/`.wav`, hallazgos con «Explicar» por
+  `yutani.ia`, consola interactiva, pruebas de treadstone, recursos y modales de hal, sync y kaneda.
+- **ui**: keymap portable con alternativas, paleta de comandos y `[teclas]` en `project.toml`.
+- **sync**: elegir la versión del Host o de la VM por archivo en un conflicto.
+- **gdb**: depuración y fotos de bishop desde el orquestador.
 
 ### Cambiado
 

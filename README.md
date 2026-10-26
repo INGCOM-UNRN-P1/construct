@@ -5,9 +5,8 @@ IDE pedagógico y orquestador de máquina virtual del perfil `estudiante` de Pro
 de las herramientas dentro de una VM Debian acelerada por hardware, con la misma experiencia en
 Windows, macOS y Linux.
 
-> **Estado:** en desarrollo (Fases 1 a 3 de [`PLAN.md`](PLAN.md)). Todo se usa desde la línea
-> de comandos: preparar la computadora, compilar, auditar, ejecutar, probar y sincronizar con la
-> VM. El IDE en la terminal (`construct ui`) llega con la Fase 4.
+> **Estado:** en desarrollo (Fases 1 a 4 de [`PLAN.md`](PLAN.md)): la línea de comandos completa
+> y el IDE en la terminal (`construct ui`). Falta el modo `construct jonesy` (Fase 5).
 
 ## Requisitos
 
@@ -73,6 +72,33 @@ construct vm exec -- CMD    # un comando dentro de la VM (diagnóstico)
 archivos sin `fclose` y memoria sin liberar, con su línea. Los artefactos quedan en
 `.construct/artefactos/`.
 
+### El IDE: `construct ui`
+
+Cuatro paneles: el editor (con los hallazgos marcados al costado de cada línea), la memoria de
+`bishop` con los registros de la depuración y los `.bmp`/`.wav` que genera tu programa, los
+hallazgos (con «Explicar» por IA y el autofix de `gaff`) y la consola con la entrada del
+programa, las pruebas de `treadstone` y el consumo de recursos. Si el programa se cae, `hal`
+explica por qué en una ventana.
+
+| Acción | Atajo | Alternativa |
+| :--- | :--- | :--- |
+| Ejecutar / continuar la depuración | `F5` | `Ctrl+R` |
+| Ejecutar con `tetsuo` | `Shift+F5` | paleta |
+| Pruebas (`treadstone`) | `F6` | `Ctrl+T` |
+| Compilar (`daedalus`) | `F7` | `Ctrl+L` |
+| Auditar (`ripley`) | `F8` | `Ctrl+G` |
+| Breakpoint / step over / step into | `F9` / `F10` / `F11` | `Ctrl+B` / `Ctrl+N` / `Ctrl+O` |
+| Empezar / terminar la depuración | `Ctrl+F5` / `Ctrl+F2` | paleta |
+| Memoria con `bishop` en la línea del cursor | `F12` | paleta |
+| Guardar, sincronizar y auditar | `Ctrl+S` | — |
+| Autofix de `gaff` | `Ctrl+.` | `Alt+Enter` |
+| Explicar el hallazgo (`yutani.ia`) | `F1` | paleta |
+| Paleta de comandos (todas las acciones) | `Ctrl+P` | — |
+
+Si tu terminal no manda alguna tecla (en macOS, F10 y F11 suelen ser del sistema), usá la
+alternativa, la paleta o cambiala en `[teclas]`. «Explicar» usa la configuración común de
+`yutani.ia` (`~/.config/p1/ia.toml`); sin configurar, un servidor local como `ollama`.
+
 ## Configuración (`project.toml`)
 
 Opcional, en el directorio de trabajo:
@@ -90,6 +116,9 @@ automatico = true
 
 [dev]
 habilitado = false
+
+[teclas]            # cambiar atajos del IDE: acción = "tecla" o ["tecla", "alternativa"]
+paso_dentro = ["f11", "ctrl+o"]
 ```
 
 Variables de entorno:
