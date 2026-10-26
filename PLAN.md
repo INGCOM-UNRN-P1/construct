@@ -89,7 +89,7 @@ src/construct/
 │   ├── __init__.py        # Detecta el Host una sola vez y expone `HostPlatform` (Linux/Windows/macOS)
 │   ├── host_info.py       # SO, arquitectura real (anti-Rosetta), WSL, RAM y CPUs disponibles
 │   ├── accel.py           # Detección de KVM / WHPX / HVF / fallback TCG y sus flags de QEMU
-│   ├── qemu_locator.py    # Busca qemu-system-{x86_64,aarch64}: PATH, Program Files, Homebrew, versión mínima
+│   ├── binarios.py        # Busca qemu-system-*, git y gdb: PATH, Program Files, Homebrew, versión mínima
 │   ├── paths.py           # Directorios de datos/caché/estado vía `platformdirs`; rutas cortas en Windows
 │   ├── process.py         # Lanzamiento y terminación robusta de QEMU (Job Objects / PDEATHSIG / pidfile)
 │   ├── terminal.py        # Modo raw + resize: `termios`/`SIGWINCH` en POSIX, API de consola Win32 en Windows
@@ -124,7 +124,7 @@ El disco del sistema del Guest es un **overlay `qcow2` con `backing_file` relati
 
 ### 2.3. Dependencias del Host
 
-* **Obligatorias:** `uv`, QEMU (versión mínima de la Fase 0), Git ≥ 2.30.
+* **Obligatorias:** `uv` (Python ≥ 3.12), QEMU (versión mínima de la Fase 0), Git ≥ 2.30.
 * **Python (`pyproject.toml`):** ecosistema vía `git+https://github.com/INGCOM-UNRN-P1/...` (RF-01: `yutani`); terceros mínimos y portables: `textual`, `typer` (vía `yutani`), `pygdbmi` (sólo el parser), `platformdirs`, `filelock`, `psutil`. Todas tienen *wheels* para las tres plataformas; no se admite ninguna dependencia que requiera compilar en el Host.
 * **Prohibidas en el Host del estudiante:** GDB, gcc/clang, Docker, WSL, sockets Unix, `pty`/`termios` fuera de `platform/terminal.py`.
 * **Opcionales en la máquina de desarrollo:** `gdb-multiarch` (o GDB con soporte de la arquitectura del Guest), usado sólo en modo desarrollo (§3.4). `construct doctor --dev` lo verifica; sin `--dev`, su ausencia no es un error.
@@ -237,7 +237,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
 ### Fase 3: Orquestación QEMU, Puentes de Herramientas y Sincronización
 
 * **Tareas:**
-  1. `core/vm_manager.py`: usa `platform.accel`, `platform.qemu_locator` y `platform.process`; arma la línea de comandos con `QemuCommandBuilder`; ciclo de vida por QMP. **Sesión persistente**: la VM queda viva entre comandos CLI (`construct build`, `check`, ...) y se apaga tras un tiempo de inactividad configurable, para no pagar el arranque en cada invocación. Recursos por defecto conservadores (p. ej. 2 vCPU, 1 GB) y ajustables en `project.toml`.
+  1. `core/vm_manager.py`: usa `platform.accel`, `platform.binarios` y `platform.process`; arma la línea de comandos con `QemuCommandBuilder`; ciclo de vida por QMP. **Sesión persistente**: la VM queda viva entre comandos CLI (`construct build`, `check`, ...) y se apaga tras un tiempo de inactividad configurable, para no pagar el arranque en cada invocación. Recursos por defecto conservadores (p. ej. 2 vCPU, 1 GB) y ajustables en `project.toml`.
   2. `core/channel.py` (nuevo): servidor TCP, handshake con token, multiplexor de canales sobre `asyncio` (funciona igual con el *event loop* Proactor de Windows).
   3. `core/tool_bridge.py`: adaptadores de `daedalus`, `ripley --json`, `gaff --autofix`, `tetsuo`, `hal`, `bishop`, `treadstone`. Traducción de rutas del Guest (`/workspace/...`) a rutas del Host (`pathlib`) en cada hallazgo.
   4. `core/sync_manager.py`: esquema de bundles de §3.3 con cola serializada y normalización de nombres; expuesto por `construct sync` y usado por el resto de los comandos sólo en modo `subir`/`artefactos`.
