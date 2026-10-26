@@ -13,6 +13,9 @@ automatico = true   # build/check/test/run suben el código antes de correr
 
 [dev]
 habilitado = false  # modo desarrollo: gdbserver tunelizado para GDB en el Host
+
+[teclas]            # atajos del IDE: acción = "tecla" o ["tecla", "alternativa"] (ui/keymap.py)
+paso_dentro = ["f11", "ctrl+o"]
 ```
 
 Todas las claves son opcionales; las que faltan toman el valor por defecto.
@@ -21,8 +24,10 @@ Todas las claves son opcionales; las que faltan toman el valor por defecto.
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 NOMBRE_ARCHIVO = "project.toml"
@@ -56,6 +61,8 @@ class Config:
     vm: ConfigVM = field(default_factory=ConfigVM)
     sync: ConfigSync = field(default_factory=ConfigSync)
     dev: ConfigDev = field(default_factory=ConfigDev)
+    teclas: Mapping[str, str | tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    """Sólo la forma está validada acá; qué acciones y teclas valen lo decide `ui/keymap.py`."""
     origen: Path | None = None
 
 
@@ -96,13 +103,31 @@ def cargar(archivo: Path) -> Config:
     except tomllib.TOMLDecodeError as error:
         raise ErrorDeConfiguracion(f"{archivo} no es un TOML válido: {error}.") from None
     secciones = {"vm": ConfigVM, "sync": ConfigSync, "dev": ConfigDev}
-    desconocidas = set(datos) - set(secciones)
+    desconocidas = set(datos) - {*secciones, "teclas"}
     if desconocidas:
         raise ErrorDeConfiguracion(
-            f"{archivo}: secciones desconocidas {', '.join(sorted(desconocidas))} (las válidas son vm, sync y dev)."
+            f"{archivo}: secciones desconocidas {', '.join(sorted(desconocidas))} "
+            "(las válidas son vm, sync, dev y teclas)."
         )
     return Config(**{nombre: _seccion(clase, nombre, datos.get(nombre), archivo)
-                     for nombre, clase in secciones.items()}, origen=archivo)
+                     for nombre, clase in secciones.items()},
+                  teclas=_teclas(datos.get("teclas"), archivo), origen=archivo)
+
+
+def _teclas(datos: Any, archivo: Path) -> Mapping[str, str | tuple[str, ...]]:
+    if datos is None:
+        return MappingProxyType({})
+    if not isinstance(datos, dict):
+        raise ErrorDeConfiguracion(f"{archivo}: [teclas] tiene que ser una tabla.")
+    teclas: dict[str, str | tuple[str, ...]] = {}
+    for accion, valor in datos.items():
+        if isinstance(valor, str):
+            teclas[accion] = valor
+        elif isinstance(valor, list) and valor and all(isinstance(v, str) for v in valor):
+            teclas[accion] = tuple(valor)
+        else:
+            raise ErrorDeConfiguracion(f"{archivo}: [teclas] {accion} tiene que ser una tecla o una lista de teclas.")
+    return MappingProxyType(teclas)
 
 
 def cargar_del_directorio(directorio: Path) -> Config:
