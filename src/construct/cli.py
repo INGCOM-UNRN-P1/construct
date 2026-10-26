@@ -19,7 +19,7 @@ import typer
 from rich.console import Console
 from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TransferSpeedColumn
 from yutani.cli import CONTEXTO, TyperConErrores, crear_app
-from yutani.doctor import SCHEMA_VERSION, informe, mostrar
+from yutani.doctor import SCHEMA_VERSION, Chequeo, informe, mostrar
 
 from construct import __version__, comandos
 from construct.consola import conectar_terminal
@@ -27,7 +27,7 @@ from construct.core import imagenes
 from construct.core.channel import ErrorDeCanal, ErrorRemoto
 from construct.core.cliente import ErrorDeArranque, asegurar_sesion, conectar_sesion, detener_sesion
 from construct.core.config import ErrorDeConfiguracion, cargar_del_directorio
-from construct.core.doctor import Entorno, chequeos
+from construct.core.doctor import Entorno, chequeos, consultar_guest, guest_sin_consultar
 from construct.core.sesion import InfoSesion, leer_info
 from construct.core.setup import ResultadoSetup, preparar
 from construct.platform import host
@@ -68,13 +68,33 @@ def doctor(
     json_salida: bool = typer.Option(False, "--json", help="Informe en JSON con schema_version."),
     dev: bool = typer.Option(False, "--dev", help="Verifica también lo que necesita el modo desarrollo (GDB del Host)."),
 ) -> None:
-    """Verifica que el Host tenga lo necesario para correr la máquina virtual."""
-    datos = informe("construct", __version__, chequeos(_entorno(), dev=dev))
+    """Verifica el Host y, si la máquina virtual está corriendo, las herramientas de adentro."""
+    datos = informe("construct", __version__, [*chequeos(_entorno(), dev=dev), *_chequeos_del_guest()])
     if json_salida:
         typer.echo(json.dumps(datos, ensure_ascii=False, indent=2))
     else:
         mostrar(datos)
     raise typer.Exit(0 if datos["ok"] else 1)
+
+
+def _chequeos_del_guest() -> list[Chequeo]:
+    info = leer_info(directorios())
+    if info is None:
+        return [guest_sin_consultar("la VM está apagada: no se consultó mother doctor",
+                                    "Arrancala con `construct vm start` y volvé a ejecutar `construct doctor`.")]
+
+    async def consultar() -> list[Chequeo]:
+        canal = await conectar_sesion(info)
+        try:
+            return await consultar_guest(canal)
+        finally:
+            await canal.cerrar()
+
+    try:
+        return asyncio.run(consultar())
+    except (ErrorDeCanal, OSError) as error:
+        return [guest_sin_consultar(f"no se pudo hablar con la VM: {error}",
+                                    "Reiniciala con `construct vm stop` y `construct vm start`.")]
 
 
 def _describir(info: InfoSesion) -> dict[str, object]:

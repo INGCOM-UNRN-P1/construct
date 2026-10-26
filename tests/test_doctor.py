@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 
 from yutani.doctor import Chequeo, informe
 
+from construct.core.channel import Resultado
 from construct.core.config import Config, ConfigDev, ConfigVM
-from construct.core.doctor import Entorno, chequeos
+from construct.core.doctor import NOMBRE_GUEST, Entorno, chequeos, chequeos_del_guest, consultar_guest
 from construct.platform.host_info import Arquitectura, HostInfo, Sistema
 from construct.platform.paths import directorios
 from tests.conftest import crear_host, sondas_aceleracion, sondas_binarios
@@ -145,3 +148,71 @@ def test_espacio_se_mide_en_una_carpeta_existente(construct_home: Path) -> None:
     e.espacio_libre = lambda ruta: medidas.append(ruta) or 10 * 1024**3
     chequeos(e)
     assert Path(medidas[0]).exists()
+
+
+# --- mother doctor del Guest ------------------------------------------------------------------
+
+def informe_mother(*chequeos_mother: dict[str, object], ok: bool = True) -> str:
+    return json.dumps({"schema_version": "1.0.0", "herramienta": "mother", "version": "0.2.0", "ok": ok,
+                       "chequeos": list(chequeos_mother)})
+
+
+def test_guest_en_verde() -> None:
+    salida = informe_mother({"nombre": "daedalus", "requerido": True, "ok": True},
+                            {"nombre": "tyrell", "requerido": False, "ok": False})
+    [resumen] = chequeos_del_guest(salida, 0)
+    assert (resumen.nombre, resumen.requerido, resumen.ok) == (NOMBRE_GUEST, True, True)
+    assert "1 componentes requeridos" in resumen.detalle
+
+
+def test_guest_con_fallas_las_detalla() -> None:
+    salida = informe_mother({"nombre": "ripley", "requerido": True, "ok": False, "detalle": "no instalada",
+                             "sugerencia": "mother instalar --perfil estudiante"}, ok=False)
+    resumen, ripley = chequeos_del_guest(salida, 1)
+    assert not resumen.ok and "faltan ripley" in resumen.detalle
+    assert (ripley.nombre, ripley.requerido, ripley.ok) == ("VM: ripley", True, False)
+    assert ripley.sugerencia == "En la VM: mother instalar --perfil estudiante"
+    assert not informe("construct", "0", [resumen, ripley])["ok"]
+
+
+def test_guest_sin_json() -> None:
+    [resumen] = chequeos_del_guest("Traceback (most recent call last):", 1)
+    assert resumen.requerido and not resumen.ok and "construct setup --forzar" in resumen.sugerencia
+
+
+class CanalFalso:
+    def __init__(self, resultado: Resultado | None = None, demora: float = 0) -> None:
+        self.resultado, self.demora, self.argv = resultado, demora, None
+
+    async def correr(self, argv: list[str]) -> Resultado:
+        self.argv = argv
+        await asyncio.sleep(self.demora)
+        assert self.resultado is not None
+        return self.resultado
+
+
+def test_consultar_guest_corre_mother() -> None:
+    canal = CanalFalso(Resultado(0, None, informe_mother().encode()))
+    [resumen] = asyncio.run(consultar_guest(canal))  # type: ignore[arg-type]
+    assert resumen.ok and canal.argv == ["mother", "doctor", "--perfil", "estudiante", "--json"]
+
+
+def test_consultar_guest_sin_respuesta_no_hace_fallar() -> None:
+    [resumen] = asyncio.run(consultar_guest(CanalFalso(demora=1), timeout=0.01))  # type: ignore[arg-type]
+    assert not resumen.requerido and not resumen.ok and "no respondió" in resumen.detalle
+
+
+def test_consultar_guest_sin_mother() -> None:
+    canal = CanalFalso(Resultado(127, None, error="no existe el programa mother"))
+    [resumen] = asyncio.run(consultar_guest(canal))  # type: ignore[arg-type]
+    assert resumen.requerido and not resumen.ok
+
+
+def test_doctor_con_la_vm_apagada_lo_avisa_sin_fallar() -> None:
+    from typer.testing import CliRunner
+
+    from construct.cli import app
+
+    datos = json.loads(CliRunner().invoke(app, ["doctor", "--json"]).stdout)
+    guest = [c for c in datos["chequeos"] if c["nombre"] == NOMBRE_GUEST]
+    assert guest and not guest[0]["requerido"] and "apagada" in guest[0]["detalle"]

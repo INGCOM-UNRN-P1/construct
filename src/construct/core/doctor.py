@@ -1,12 +1,14 @@
 """Diagnóstico del Host para `construct doctor` (RF-02, LINEAMIENTOS §3.3, PLAN Fase 1).
 
 Usa el sobre JSON común de `yutani.doctor`. Cada chequeo fallido trae la instrucción concreta para
-el sistema y la distro del alumno. El encadenado con `mother doctor --json` dentro del Guest se
-suma cuando exista la VM (Fase 3).
+el sistema y la distro del alumno. Si la VM está corriendo, se suma el `mother doctor --json` del
+perfil estudiante dentro del Guest (`chequeos_del_guest`).
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -14,6 +16,7 @@ from dataclasses import dataclass, field
 from yutani.doctor import Chequeo
 
 from construct.core import imagenes
+from construct.core.channel import Canal
 from construct.core.config import Config
 from construct.platform import accel as aceleracion
 from construct.platform import binarios
@@ -23,6 +26,10 @@ from construct.platform.paths import Directorios, ancestro_existente
 
 ESPACIO_MINIMO_GB = 2.0
 RAM_RECOMENDADA_MB = 4096
+ARGV_MOTHER = ["mother", "doctor", "--perfil", "estudiante", "--json"]
+TIMEOUT_MOTHER_S = 180
+NOMBRE_GUEST = "perfil estudiante (VM)"
+PROPOSITO_GUEST = "herramientas de la cátedra dentro de la VM (mother doctor)"
 
 
 @dataclass
@@ -198,3 +205,47 @@ def chequeos(entorno: Entorno, *, dev: bool = False, imagen: bool = True) -> lis
     if dev or entorno.config.dev.habilitado:
         resultado.append(_gdb_dev(entorno))
     return resultado
+
+
+# --- Guest: mother doctor del perfil estudiante -------------------------------------------------
+
+
+def guest_sin_consultar(detalle: str, sugerencia: str = "") -> Chequeo:
+    """El Guest no se pudo consultar: informativo, no hace fallar al doctor del Host."""
+    return Chequeo(NOMBRE_GUEST, False, False, detalle, PROPOSITO_GUEST, sugerencia)
+
+
+def chequeos_del_guest(salida: str, codigo: int) -> list[Chequeo]:
+    """El resumen del `mother doctor --json` del Guest más cada chequeo requerido que falló."""
+    try:
+        datos = json.loads(salida)
+        lista = [c for c in datos.get("chequeos", []) if isinstance(c, dict)]
+    except (ValueError, AttributeError):
+        return [Chequeo(NOMBRE_GUEST, True, False, f"mother doctor --json no devolvió JSON (código {codigo})",
+                        PROPOSITO_GUEST, "Actualizá la imagen con `construct setup --forzar`.")]
+    fallidos = [c for c in lista if c.get("requerido") and not c.get("ok")]
+    ok = bool(datos.get("ok", codigo == 0)) and not fallidos
+    version = f"mother {datos['version']}: " if datos.get("version") else ""
+    if ok:
+        detalle = f"{version}{sum(1 for c in lista if c.get('requerido'))} componentes requeridos en verde"
+    else:
+        detalle = f"{version}faltan " + ", ".join(str(c.get("nombre", "?")) for c in fallidos) if fallidos else \
+            f"{version}informa un problema (código {codigo})"
+    resultado = [Chequeo(NOMBRE_GUEST, True, ok, detalle, PROPOSITO_GUEST,
+                         "" if ok else "Si no se arregla, actualizá la imagen con `construct setup --forzar`.")]
+    for c in fallidos:
+        sugerencia = str(c.get("sugerencia") or "")
+        resultado.append(Chequeo(f"VM: {c.get('nombre', '?')}", True, False, str(c.get("detalle", "")),
+                                 str(c.get("proposito", "")), f"En la VM: {sugerencia}" if sugerencia else ""))
+    return resultado
+
+
+async def consultar_guest(canal: Canal, *, timeout: float = TIMEOUT_MOTHER_S) -> list[Chequeo]:
+    try:
+        resultado = await asyncio.wait_for(canal.correr(ARGV_MOTHER), timeout)
+    except TimeoutError:
+        return [guest_sin_consultar(f"mother doctor no respondió en {timeout:.0f} s")]
+    if resultado.error:
+        return [Chequeo(NOMBRE_GUEST, True, False, resultado.error, PROPOSITO_GUEST,
+                        "Actualizá la imagen con `construct setup --forzar`.")]
+    return chequeos_del_guest(resultado.texto(), resultado.codigo)
