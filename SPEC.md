@@ -146,7 +146,21 @@ El diseño mantiene la interfaz desacoplada mediante un bus de eventos (`cmd_que
 * **RF-02 (Contrato CLI Unificado §3.2):**
   * Construido sobre `TyperConErrores` de `yutani` (cero *stack traces* de Python ante errores del usuario o fallos de compilación; mensajes en español rioplatense).
   * Flags `-h`/`--help` en español y `-v`/`--version` devolviendo `construct X.Y.Z`.
-  * Subcomando `construct doctor` y `construct doctor --json` que verifica el hipervisor del Host (QEMU `x86_64`, aceleración KVM/WHPX/HVF, imagen de disco) y consulta `mother doctor --json` dentro de la VM, emitiendo `{ "schema_version": "1.0", "estado": "ok", "checks": [...] }` con código de salida `0`.
+  * Subcomando `construct doctor` y `construct doctor --json` que verifica el hipervisor del Host (QEMU `x86_64`, aceleración KVM/WHPX/HVF, imagen de disco) y consulta `mother doctor --json` dentro de la VM. La salida JSON usa el sobre común de `yutani.doctor` (LINEAMIENTOS §3.3), igual que el resto del ecosistema:
+    ```json
+    {
+      "schema_version": "1.0.0",
+      "herramienta": "construct",
+      "version": "X.Y.Z",
+      "ok": true,
+      "chequeos": [
+        {"nombre": "aceleración", "requerido": true, "ok": true,
+         "detalle": "KVM para un Guest x86_64 (/dev/kvm accesible (API 12))",
+         "proposito": "acelerar la VM por hardware", "sugerencia": ""}
+      ]
+    }
+    ```
+    `ok` es `true` cuando pasan todos los chequeos con `requerido: true`; el código de salida es `0` en ese caso y `1` si falla alguno. Cada chequeo fallido trae en `sugerencia` la instrucción concreta para el sistema operativo y la distribución del Host.
 
 ### 6.2. Orquestación del Perfil `estudiante` en el IDE
 * **RF-03 (Pipeline de Compilación y Análisis Estático):**
