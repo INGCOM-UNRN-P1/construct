@@ -62,6 +62,9 @@ RUN uv tool install "git+https://github.com/INGCOM-UNRN-P1/mother@${MOTHER_REF}"
     && mother instalar --perfil estudiante \
     && (mother doctor --perfil estudiante || echo "AVISO: mother doctor informó faltantes (ver arriba)")
 
+# tetsuo (ASan/UBSan en español) está en el perfil `analisis`, pero el IDE lo usa en Shift+F5 (SPEC §3.1).
+RUN uv tool install "tetsuo[ecosistema] @ git+https://github.com/INGCOM-UNRN-P1/tetsuo"
+
 COPY instalar_librerias.sh /tmp/instalar_librerias.sh
 RUN sh /tmp/instalar_librerias.sh "$TREADSTONE_REF" "$BITMAPS_REF" "$SONIDO_REF" && rm /tmp/instalar_librerias.sh
 
@@ -79,7 +82,6 @@ RUN set -eu; \
     sed -i 's/^#\?rc_cgroup_mode=.*/rc_cgroup_mode="unified"/' /etc/rc.conf; \
     if [ "$TARGETARCH" = "arm64" ]; then consola=ttyAMA0; else consola=ttyS0; fi; \
     sed -i "s/CONSOLA/$consola/g" /etc/inittab; \
-    echo construct > /etc/hostname; \
     passwd -l root >/dev/null
 
 # Versión de la imagen (la escribe build_vm.sh con --build-arg).

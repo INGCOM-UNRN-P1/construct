@@ -67,6 +67,9 @@ echo "==> Creando rootfs.qcow2 ($TAMANO, ext4)"
 	apk add -q --no-cache e2fsprogs qemu-img tar
 	mkdir /raiz
 	tar -xpf /trabajo/rootfs.tar -C /raiz --numeric-owner --xattrs
+	# El motor de contenedores pisa estos archivos en el build: se escriben acá.
+	echo construct > /raiz/etc/hostname
+	printf '127.0.0.1\tlocalhost construct\n::1\tlocalhost\n' > /raiz/etc/hosts
 	mke2fs -q -t ext4 -L construct-root -d /raiz /trabajo/rootfs.img $TAMANO
 	qemu-img convert -c -O qcow2 /trabajo/rootfs.img /trabajo/rootfs.qcow2"
 install -m 0644 "$TRABAJO/rootfs.qcow2" "$DESTINO/rootfs.qcow2"

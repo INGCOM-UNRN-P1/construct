@@ -17,13 +17,14 @@ start() {
 	if [ ! -b "$DISCO" ]; then
 		ewarn "No hay disco de trabajo ($DISCO): /workspace queda en el disco del sistema"
 	else
-		if ! blkid "$DISCO" >/dev/null 2>&1; then
+		# El blkid de busybox sale con 0 aunque no haya sistema de archivos: se mira si imprime algo.
+		if [ -z "$(blkid "$DISCO" 2>/dev/null)" ]; then
 			ebegin "Formateando el disco de trabajo"
 			mkfs.ext4 -q -L "$ETIQUETA" "$DISCO"
 			eend $? || return 1
 		fi
 		ebegin "Montando el disco de trabajo en /workspace"
-		mount -o noatime "$DISCO" /workspace
+		mount -t ext4 -o noatime "$DISCO" /workspace
 		eend $? || return 1
 	fi
 	chown estudiante:estudiante /workspace

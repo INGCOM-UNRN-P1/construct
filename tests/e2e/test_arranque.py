@@ -140,7 +140,7 @@ def test_cgroups_v2(vm: tuple[Conexion, dict[str, Any], float]) -> None:
 
 
 PROGRAMAS = ["gcc", "gdb", "valgrind", "bwrap", "make", "git", "jonesy",
-             "mother", "daedalus", "ripley", "gaff", "spunkmeyer", "kaneda", "nostromo", "hal", "bishop"]
+             "mother", "daedalus", "ripley", "gaff", "spunkmeyer", "kaneda", "nostromo", "hal", "bishop", "tetsuo"]
 
 
 @pytest.mark.parametrize("programa", PROGRAMAS)
