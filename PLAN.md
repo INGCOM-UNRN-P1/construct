@@ -154,10 +154,10 @@ El disco del sistema del Guest es un **overlay `qcow2` con `backing_file` relati
 
 ### 3.2. Protocolo `construct-ctl`
 
-* **Marco:** `[canal:u8][tipo:u8][longitud:u32 BE][carga]`; carga JSON UTF-8 para mensajes de control y binaria para `pty` y `file`.
+* **Marco:** `[tipo:u8][id:u32 BE][largo:u32 BE][datos]`; datos JSON UTF-8 para los mensajes de control y binarios para los flujos. Especificación completa en [`docs/protocolo.md`](docs/protocolo.md).
 * **Handshake:** el Host genera un token aleatorio y lo inyecta con `-fw_cfg name=opt/construct/token,string=<token>`; el agente lo lee de `/sys/firmware/qemu_fw_cfg` y lo presenta junto con su versión de protocolo. Una conexión sin token válido se descarta. Esto evita que otro proceso local se haga pasar por la VM.
 * **Versionado:** `protocol_version` en el handshake; el Host rechaza imágenes incompatibles y sugiere `construct setup --actualizar-imagen`.
-* **Canales:** `ctl` (pedidos/respuestas de herramientas), `pty` (sesiones interactivas: programa del alumno, `jonesy`), `tlm` (telemetría RF-06/07), `mi` (GDB/MI), `file` (transferencia de bundles Git y artefactos `.bmp`/`.wav`/`.html`/`.mmd`/`reproducer.sh`).
+* **Multiplexado por `id`** (en lugar de canales fijos): cada proceso (`EJECUTAR`, con tuberías o con `pty`) y cada transferencia (`ESCRIBIR`/`LEER`) lleva su propio `id`. Las herramientas, el programa del alumno, `jonesy` y `gdb --interpreter=mi` son procesos; los bundles Git y los artefactos, transferencias. La telemetría (RF-06/07) se suma en la Fase 3 como un tipo de mensaje más.
 * **Interrupción:** `Ctrl+C` en el Host nunca se traduce a una señal local: se envía un mensaje `signal{SIGINT}` por `ctl` y el agente lo entrega al proceso confinado. Mismo comportamiento en las tres plataformas.
 
 ### 3.3. Sincronización de código (RF-08): comando dedicado `construct sync`
@@ -227,13 +227,14 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
 ### Fase 2: Imagen de Máquina Virtual Multiarquitectura y Agente Guest
 
 * **Tareas:**
-  1. `vm_image/Dockerfile.alpine` multiarquitectura (`--platform linux/amd64,linux/arm64`): paquetes base, `gdb`, `git`, `bubblewrap`, `mother instalar --perfil estudiante`, `treadstone`, `bitmaps`, `sonido`. Verificar con cada dueño de satélite que sus paquetes compilen en `aarch64` (especialmente `jonesy` en Rust y `bishop`).
+  1. `vm_image/Dockerfile.alpine` multiarquitectura (`--platform linux/amd64,linux/arm64`): paquetes base, `gdb`, `git`, `bubblewrap`, `mother instalar --perfil estudiante`, `treadstone`, `bitmaps`, `sonido`. Verificar con cada dueño de satélite que sus paquetes compilen en `aarch64` (especialmente `jonesy` en Rust y `bishop`). `jonesy` no publica binario `aarch64`: en esa arquitectura se compila desde el tag.
   2. OpenRC con `rc_cgroup_mode="unified"` para `cgroups v2` (RF-04/RF-06).
   3. `vm_image/build_vm.sh`: genera kernel + `rootfs.qcow2` por arquitectura. **Herramienta exclusiva de mantenedores, sólo corre en Linux/CI**; los alumnos nunca construyen la imagen.
-  4. `guest_agent/construct_daemon.c` (enlazado estático con musl): protocolo de §3.2, despacho de herramientas a través de `nostromo.ejecutar_comando_aislado`, PTY con `forkpty` + mensajes de resize, GDB/MI, telemetría, transferencia de archivos, watchdog de canal.
-  5. `guest_agent/libconstruct_preload.c`: interposición de `malloc`/`free`/`fopen`/`fclose`, deshabilitada en modo `tetsuo`.
+  4. `guest_agent/construct_daemon.c` (enlazado estático con musl): protocolo de §3.2, ejecución genérica de procesos (el Host arma el `argv`, incluido el envoltorio `nostromo`, así el agente no conoce las herramientas), PTY con `forkpty` + mensajes de resize, transferencia de archivos y watchdog de canal. GDB/MI no necesita nada propio: es un proceso más.
+  5. `guest_agent/libconstruct_preload.c`: pasa a la Fase 3, junto con `telemetry.py`, que es quien consume sus datos.
   6. Pipeline de CI que publica las imágenes como *release assets* junto con el manifiesto `imagenes.json` que consume `construct setup` (esquema en `core/imagenes.py`).
 * **Checkpoint:** ambas imágenes arrancan con el agente completo y pasan `mother doctor --json` dentro del Guest.
+* **Estado (26/10/2026):** implementada. La imagen `x86_64` se construyó y arrancó en Fedora 44 con KVM: handshake a los 3,15 s, perfil estudiante completo (`mother doctor` en verde), librerías C enlazando y cgroups v2 (`tests/e2e/test_arranque.py`, 21 chequeos). La `aarch64` la construye y prueba el workflow `imagenes.yml` en un runner ARM nativo; todavía no corrió. Pendientes para la cátedra: las herramientas se instalan desde la rama principal de cada repo hasta que `ecosistema.toml` fije la matriz del cuatrimestre, y `bitmaps` y `sonido` llaman igual (`libreria.h`) a su cabecera, así que van en `/usr/local/include/bitmaps/` y `/usr/local/include/sonido/`.
 
 ### Fase 3: Orquestación QEMU, Puentes de Herramientas y Sincronización
 

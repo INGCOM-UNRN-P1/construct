@@ -5,9 +5,10 @@ IDE pedagógico y orquestador de máquina virtual del perfil `estudiante` de Pro
 de las herramientas dentro de una VM Alpine acelerada por hardware, con la misma experiencia en
 Windows, macOS y Linux.
 
-> **Estado:** en desarrollo (Fase 1 de [`PLAN.md`](PLAN.md) completa). Por ahora están
+> **Estado:** en desarrollo (Fases 1 y 2 de [`PLAN.md`](PLAN.md)). Por ahora están
 > `construct setup`, que prepara la computadora y baja la imagen de la VM, y `construct doctor`,
-> que verifica que esté todo listo. Las imágenes se publican a partir de la Fase 2.
+> que verifica que esté todo listo. La imagen y su agente ya existen; manejar la VM desde la CLI
+> llega con la Fase 3.
 
 ## Requisitos
 
@@ -82,8 +83,20 @@ Variables de entorno:
 
 ```bash
 uv sync
-uv run pytest
+uv run pytest                     # incluye el agente del Guest compilado en Linux
 ```
+
+Imagen del Guest (Linux con podman o docker; ver [`docs/protocolo.md`](docs/protocolo.md)):
+
+```bash
+vm_image/build_vm.sh --arch x86_64 --version 0.1.0 --salida dist/imagenes
+CONSTRUCT_IMAGEN_PRUEBA=dist/imagenes/x86_64 uv run pytest tests/e2e -s   # la arranca de verdad
+vm_image/generar_manifiesto.py dist/imagenes --version 0.1.0 --salida dist/release
+construct setup -m dist/release/imagenes.json                          # la instala como un alumno
+```
+
+El workflow `imagenes.yml` construye y prueba las dos arquitecturas y, con un tag `imagen-vX.Y.Z`,
+publica el release que `construct setup` baja por defecto.
 
 Ver [`AGENTS.md`](AGENTS.md) para las convenciones de trabajo y [`PLAN.md`](PLAN.md) para la hoja de ruta.
 
