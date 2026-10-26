@@ -310,3 +310,29 @@ def test_memoria_con_bishop(agente_compilado: Path, herramientas: Path, tmp_path
     [memoria] = de_tipo(eventos, ev.MemoriaBishop)
     assert memoria.datos["linea"] == 14 and memoria.datos["entrada"] == "5"
     assert eventos[-1] == ev.TareaTerminada(ev.Tarea.MEMORIA, True, "bishop: 1 bloque(s) en el heap")
+
+
+def test_guardar_reproductor_del_ultimo_crash(agente_compilado: Path, herramientas: Path, tmp_path: Path) -> None:
+    reproductor = r"""#!/bin/sh
+salida=reproducer.sh
+while [ $# -gt 0 ]; do [ "$1" = --output ] && salida="$2"; shift; done
+printf '#!/bin/sh\n./programa\n' > "$salida"
+echo '{"ok": true}'
+"""
+    (herramientas / "hal").write_text(HAL.replace("#!/bin/sh\n", "#!/bin/sh\n[ \"$1\" = generate-reproducer ] && exec "
+                                                  f"{herramientas}/reproductor \"$@\"\n", 1), encoding="utf-8")
+    (herramientas / "reproductor").write_text(reproductor, encoding="utf-8")
+    (herramientas / "reproductor").chmod(0o755)
+
+    async def prueba() -> tuple[list[ev.Evento], Path]:
+        async with orquestador(agente_compilado, tmp_path, CRASH) as (orq, eventos, _):
+            await orq.ejecutar(ev.GuardarReproductor())  # todavía no hubo crash
+            await atender(orq, ev.Ejecutar(), ev.EnviarEntrada(b"1"), ev.EnviarEntrada(b""), pausa=0.5)
+            await orq.ejecutar(ev.GuardarReproductor())
+            return eventos, orq.proyecto.carpeta
+
+    eventos, carpeta = correr(prueba)
+    assert isinstance(eventos[1], ev.ErrorDeTarea) and "no hay un crash" in eventos[1].mensaje
+    assert eventos[-1] == ev.TareaTerminada(ev.Tarea.REPRODUCTOR, True,
+                                            "hal_reproducer.sh guardado en .construct/artefactos/")
+    assert (carpeta / ".construct" / "artefactos" / "hal_reproducer.sh").is_file()

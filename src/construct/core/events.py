@@ -29,6 +29,7 @@ class Tarea(StrEnum):
     SINCRONIZAR = "sincronizar"
     DEPURAR = "depurar"
     MEMORIA = "memoria"
+    REPRODUCTOR = "reproductor"
 
 
 class ModoEjecucion(StrEnum):
@@ -153,8 +154,13 @@ class InspeccionarMemoria:
     entrada: bytes = b""
 
 
+@dataclass(frozen=True)
+class GuardarReproductor:
+    """El botón del modal de hal: `hal_reproducer.sh` del último crash, a `.construct/artefactos/`."""
+
+
 Comando = (Compilar | Auditar | AplicarAutofix | Ejecutar | EnviarEntrada | Interrumpir | Probar | Sincronizar
-           | AlternarBreakpoint | Depurar | Avanzar | TerminarDepuracion | InspeccionarMemoria)
+           | AlternarBreakpoint | Depurar | Avanzar | TerminarDepuracion | InspeccionarMemoria | GuardarReproductor)
 
 
 # --- Eventos (núcleo → interfaz) --------------------------------------------------------------

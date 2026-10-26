@@ -8,6 +8,7 @@ plana `hallazgos` con la forma común de `yutani.hallazgos` (LINEAMIENTOS §3.2)
 from __future__ import annotations
 
 import json
+import shlex
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -101,6 +102,18 @@ def argv_nostromo(binario: str, argumentos: Iterable[str] = (), *, entrada: str 
     if entrada:
         argv += ["--stdin", entrada]
     return [*argv, binario, *argumentos]
+
+
+def argv_reproductor(binario: str, argumentos: Iterable[str] = (), entrada: str = "",
+                     salida: str = "hal_reproducer.sh") -> list[str]:
+    """El script de hal que repite el crash con la misma entrada (vuelve al Host como artefacto)."""
+    argv = ["hal", "generate-reproducer", binario, "--output", salida, "--json"]
+    if entrada:
+        argv += ["--stdin", entrada]
+    lista = list(argumentos)
+    if lista:
+        argv += ["--args", shlex.join(lista)]
+    return argv
 
 
 def argv_bishop(fuente: str, linea: int) -> list[str]:

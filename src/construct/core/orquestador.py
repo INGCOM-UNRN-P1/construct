@@ -198,6 +198,7 @@ class Orquestador:
         self._breakpoints: dict[tuple[str, int], int | None] = {}  # (archivo, línea) → número en GDB
         self._depurador: Depurador | None = None
         self._salida_vista = 0
+        self._ultimo_crash: tuple[str, tuple[str, ...], bytes] | None = None
 
     async def atender(self, comandos: asyncio.Queue[ev.Comando | None]) -> None:
         """Hasta recibir None; los trabajos pendientes terminan antes de volver."""
@@ -269,6 +270,8 @@ class Orquestador:
                 return ev.Tarea.DEPURAR, lambda: self._depurar(comando)
             case ev.InspeccionarMemoria():
                 return ev.Tarea.MEMORIA, lambda: self._memoria(comando)
+            case ev.GuardarReproductor():
+                return ev.Tarea.REPRODUCTOR, self._reproductor
         raise TypeError(f"comando desconocido: {comando!r}")
 
     async def _artefactos(self) -> None:
@@ -356,6 +359,7 @@ class Orquestador:
         hallazgos = telemetria.analizar_muestras(muestras) + await informe_de_ejecucion(self.proyecto, informe)
         self.emitir(ev.HallazgosRecibidos(telemetria.HERRAMIENTA, congelar(hallazgos)))
         if puente.es_crash(proceso.senal):
+            self._ultimo_crash = (binario, tuple(argumentos), bytes(self._enviada))
             lectura = await diagnosticar_crash(self.proyecto, binario, argumentos, bytes(self._enviada))
             if lectura.ok:
                 self.emitir(ev.PostMortem(MappingProxyType(lectura.datos)))
@@ -487,4 +491,15 @@ class Orquestador:
         fugas = datos.get("fugas_detectadas") or 0
         return True, f"bishop: {datos.get('total_bloques_heap', 0)} bloque(s) en el heap" + (
             f", {fugas} fuga(s)" if fugas else "")
+
+    async def _reproductor(self) -> tuple[bool, str]:
+        if self._ultimo_crash is None:
+            raise ValueError("no hay un crash para reproducir: ejecutá el programa primero.")
+        binario, argumentos, entrada = self._ultimo_crash
+        resultado = await self.proyecto.correr(puente.argv_reproductor(f"./{binario}", argumentos,
+                                                                       entrada.decode(errors="replace")))
+        if not resultado.ok:
+            self.emitir(ev.SalidaDeHerramienta("hal", _crudo(resultado)))
+            return False, "hal no pudo generar el script reproductor"
+        return True, "hal_reproducer.sh guardado en .construct/artefactos/"
 
