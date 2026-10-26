@@ -63,6 +63,16 @@ def _entorno() -> Entorno:
     return Entorno(host=host(), config=cargar_del_directorio(Path.cwd()), directorios=directorios())
 
 
+@app.command("ui")
+def ui() -> None:
+    """Abre el IDE en la terminal: editor, hallazgos, memoria, consola y pruebas sobre la VM."""
+    from construct.ui.app import ConstructApp  # Textual sólo se carga para la interfaz
+    from construct.ui.keymap import armar
+
+    carpeta = Path.cwd()
+    ConstructApp(carpeta, teclas=armar(cargar_del_directorio(carpeta).teclas)).run()
+
+
 @app.command("doctor")
 def doctor(
     json_salida: bool = typer.Option(False, "--json", help="Informe en JSON con schema_version."),

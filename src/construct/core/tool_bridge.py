@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import shlex
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -174,6 +174,15 @@ def leer_salida(texto: str, carpeta_vm: str) -> SalidaHerramienta:
         if isinstance(h, dict):
             hallazgos.append({**h, "archivo": ruta_en_host(h.get("archivo"), carpeta_vm)})
     return SalidaHerramienta(datos, hallazgos)
+
+
+PLUGINS_DE_RIPLEY = {"style": "gaff", "antipatterns": "spunkmeyer", "security": "kaneda"}
+
+
+def herramienta_de(hallazgo: Mapping[str, Any]) -> str:
+    """El satélite detrás de un hallazgo: ripley los informa con el nombre de su plugin (`style`, …)."""
+    nombre = str(hallazgo.get("herramienta") or "")
+    return PLUGINS_DE_RIPLEY.get(nombre, nombre)
 
 
 def es_crash(senal: str | None) -> bool:
