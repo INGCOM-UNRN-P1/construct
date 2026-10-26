@@ -18,6 +18,8 @@ SENALES_FATALES = {"SEGV", "ABRT", "FPE", "BUS", "ILL"}
 BINARIO_POR_DEFECTO = "programa"
 BINARIO_TETSUO = "programa-tetsuo"
 FLAGS_SANITIZERS = ("-fsanitize=address,undefined", "-O0", "-g")
+BINARIO_DEPURAR = "programa-depurar"
+FLAGS_DEPURAR = ("-O0", "-g")
 CARPETA_PRUEBAS = ".construct-build"
 LIBRERIAS = ("-lp1_test", "-lbitmaps", "-lsonido", "-lm")
 ARCHIVOS_LIBRERIAS = {
@@ -99,6 +101,11 @@ def argv_nostromo(binario: str, argumentos: Iterable[str] = (), *, entrada: str 
     if entrada:
         argv += ["--stdin", entrada]
     return [*argv, binario, *argumentos]
+
+
+def argv_bishop(fuente: str, linea: int) -> list[str]:
+    """Foto de la pila y el heap en `fuente:linea` (bishop compila y corre el programa por su cuenta)."""
+    return ["bishop", "snapshot", fuente, "--line", str(linea), "--json"]
 
 
 def argv_prueba(prueba: str, fuentes: Iterable[str]) -> tuple[list[str], str]:

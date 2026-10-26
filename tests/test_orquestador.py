@@ -230,3 +230,83 @@ def test_tetsuo_que_no_pasa_sin_hallazgos_es_una_falla(agente_compilado: Path, h
     assert eventos[-1] == ev.TareaTerminada(ev.Tarea.EJECUTAR, False,
                                             "tetsuo: el programa falló, pero no trajo el detalle de los sanitizers")
     assert not de_tipo(eventos, ev.SalidaDeHerramienta)  # raw_output en blanco: nada que mostrar
+
+
+# --- Depuración (GDB del Guest, acá el del Host de pruebas) y bishop --------------------------
+
+LISTA = """#include <stdio.h>
+#include <stdlib.h>
+
+int main(void)
+{
+    int n = 0;
+    int suma = 0;
+    if (scanf("%d", &n) != 1) {
+        return 1;
+    }
+    for (int i = 0; i < n; i++) {
+        suma += i;
+    }
+    printf("suma %d\\n", suma);
+    return 4;
+}
+"""
+
+BISHOP = r"""#!/bin/sh
+read -r n
+printf '{"schema_version": "1.0.0", "linea": %s, "total_bloques_heap": 1, "fugas_detectadas": 0, "entrada": "%s", "heap": []}\n' "$4" "$n"
+"""
+
+
+@pytest.mark.skipif(shutil.which("gdb") is None, reason="hace falta gdb en el Host de pruebas")
+def test_depurar_breakpoints_pasos_y_final(agente_compilado: Path, herramientas: Path, tmp_path: Path) -> None:
+    async def prueba() -> list[ev.Evento]:
+        async with orquestador(agente_compilado, tmp_path, LISTA) as (orq, eventos, _):
+            await orq.ejecutar(ev.AlternarBreakpoint("main.c", 12))  # antes de empezar: queda pendiente
+            await orq.ejecutar(ev.Depurar(entrada=b"3\n"))
+            await orq.ejecutar(ev.Avanzar(ev.Paso.SIGUIENTE))
+            await orq.ejecutar(ev.AlternarBreakpoint("main.c", 12))  # lo saca con la depuración en curso
+            await orq.ejecutar(ev.Avanzar(ev.Paso.CONTINUAR))
+            await orq.ejecutar(ev.Avanzar(ev.Paso.CONTINUAR))  # ya terminó: es un error de tarea
+            return eventos
+
+    eventos = correr(prueba)
+    assert [e.breakpoints for e in de_tipo(eventos, ev.BreakpointsActualizados)] == [
+        frozenset({("main.c", 12)}), frozenset()]
+    primera, segunda = de_tipo(eventos, ev.DepuracionDetenida)
+    assert (primera.motivo, primera.archivo, primera.linea, primera.funcion) == ("breakpoint-hit", "main.c", 12, "main")
+    assert primera.variables["n"] == "3" and primera.pila[0].funcion == "main"
+    assert segunda.linea == 11  # vuelve a la condición del for
+    assert de_tipo(eventos, ev.DepuracionTerminada) == [ev.DepuracionTerminada(4, None)]
+    assert b"suma 3" in b"".join(e.datos for e in de_tipo(eventos, ev.SalidaPrograma))
+    assert ev.TareaTerminada(ev.Tarea.DEPURAR, True, "Depurando") in eventos
+    assert isinstance(eventos[-1], ev.ErrorDeTarea) and "no hay una depuración" in eventos[-1].mensaje
+
+
+@pytest.mark.skipif(shutil.which("gdb") is None, reason="hace falta gdb en el Host de pruebas")
+def test_depurar_sin_breakpoints_frena_en_main(agente_compilado: Path, herramientas: Path, tmp_path: Path) -> None:
+    async def prueba() -> list[ev.Evento]:
+        async with orquestador(agente_compilado, tmp_path, LISTA) as (orq, eventos, _):
+            await orq.ejecutar(ev.Depurar(entrada=b"2\n"))
+            await orq.ejecutar(ev.TerminarDepuracion())
+            return eventos
+
+    eventos = correr(prueba)
+    [parada] = de_tipo(eventos, ev.DepuracionDetenida)
+    assert parada.funcion == "main" and parada.linea == 6
+    assert de_tipo(eventos, ev.DepuracionTerminada) == [ev.DepuracionTerminada(None, None)]
+
+
+def test_memoria_con_bishop(agente_compilado: Path, herramientas: Path, tmp_path: Path) -> None:
+    (herramientas / "bishop").write_text(BISHOP, encoding="utf-8")
+    (herramientas / "bishop").chmod(0o755)
+
+    async def prueba() -> list[ev.Evento]:
+        async with orquestador(agente_compilado, tmp_path, LISTA) as (orq, eventos, _):
+            await orq.ejecutar(ev.InspeccionarMemoria("main.c", 14, b"5\n"))
+            return eventos
+
+    eventos = correr(prueba)
+    [memoria] = de_tipo(eventos, ev.MemoriaBishop)
+    assert memoria.datos["linea"] == 14 and memoria.datos["entrada"] == "5"
+    assert eventos[-1] == ev.TareaTerminada(ev.Tarea.MEMORIA, True, "bishop: 1 bloque(s) en el heap")

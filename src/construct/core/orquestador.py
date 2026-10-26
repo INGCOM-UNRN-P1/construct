@@ -23,10 +23,13 @@ from construct.core import telemetry as telemetria
 from construct.core import tool_bridge as puente
 from construct.core.channel import Canal, ErrorDeCanal, ErrorRemoto, ProcesoRemoto, Resultado
 from construct.core.config import Config
+from construct.core.gdb_client import Depurador, Detencion, ErrorDeDepuracion, GuestGdbBackend
 from construct.core.protocolo import Tipo
 from construct.core.sync_manager import ErrorDeSync, SyncManager
 
-ERRORES_DE_TAREA = (ErrorDeSync, ErrorDeCanal, ErrorRemoto, OSError, ValueError)
+ERRORES_DE_TAREA = (ErrorDeSync, ErrorDeCanal, ErrorRemoto, ErrorDeDepuracion, OSError, ValueError)
+INTERACTIVOS = (ev.AlternarBreakpoint, ev.Avanzar, ev.TerminarDepuracion)
+"""Comandos de la depuración en curso: sin TareaIniciada/TareaTerminada ni sync previa."""
 _informes = itertools.count()
 
 
@@ -192,6 +195,9 @@ class Orquestador:
         self._trabajos: asyncio.Queue[ev.Comando | None] = asyncio.Queue()
         self._proceso: ProcesoRemoto | None = None
         self._enviada = bytearray()  # la entrada del programa, para repetírsela a hal
+        self._breakpoints: dict[tuple[str, int], int | None] = {}  # (archivo, línea) → número en GDB
+        self._depurador: Depurador | None = None
+        self._salida_vista = 0
 
     async def atender(self, comandos: asyncio.Queue[ev.Comando | None]) -> None:
         """Hasta recibir None; los trabajos pendientes terminan antes de volver."""
@@ -202,6 +208,7 @@ class Orquestador:
         finally:
             await self._trabajos.put(None)
             await trabajador
+            await self._cerrar_depurador()
 
     async def _despachar(self, comando: ev.Comando) -> None:
         if isinstance(comando, ev.EnviarEntrada):
@@ -225,6 +232,12 @@ class Orquestador:
 
     async def ejecutar(self, comando: ev.Comando) -> None:
         """Un trabajo completo: TareaIniciada, sus eventos y TareaTerminada (o ErrorDeTarea)."""
+        if isinstance(comando, INTERACTIVOS):
+            try:
+                await self._interactivo(comando)
+            except ERRORES_DE_TAREA as error:
+                self.emitir(ev.ErrorDeTarea(ev.Tarea.DEPURAR, str(error)))
+            return
         tarea, trabajo = self._trabajo(comando)
         self.emitir(ev.TareaIniciada(tarea))
         try:
@@ -252,6 +265,10 @@ class Orquestador:
                 return ev.Tarea.PROBAR, self._probar
             case ev.Sincronizar():
                 return ev.Tarea.SINCRONIZAR, lambda: self._sincronizar(comando)
+            case ev.Depurar():
+                return ev.Tarea.DEPURAR, lambda: self._depurar(comando)
+            case ev.InspeccionarMemoria():
+                return ev.Tarea.MEMORIA, lambda: self._memoria(comando)
         raise TypeError(f"comando desconocido: {comando!r}")
 
     async def _artefactos(self) -> None:
@@ -372,3 +389,102 @@ class Orquestador:
         if conflictos:
             return False, "Conflictos en " + ", ".join(conflictos)
         return True, "Sincronizado"
+
+    # --- Depuración (F9, F10, F11) y memoria (bishop) -------------------------------------------
+
+    async def _interactivo(self, comando: ev.Comando) -> None:
+        if isinstance(comando, ev.AlternarBreakpoint):
+            await self._alternar_breakpoint(comando.archivo, comando.linea)
+        elif isinstance(comando, ev.Avanzar):
+            if self._depurador is None:
+                raise ValueError("no hay una depuración en curso: empezá con «Depurar».")
+            depurador = self._depurador
+            pasos = {ev.Paso.SIGUIENTE: depurador.siguiente, ev.Paso.ENTRAR: depurador.entrar,
+                     ev.Paso.CONTINUAR: depurador.continuar}
+            await self._detenido(await pasos[comando.paso]())
+        elif isinstance(comando, ev.TerminarDepuracion) and self._depurador is not None:
+            await self._cerrar_depurador()
+            self.emitir(ev.DepuracionTerminada(None, None))
+
+    async def _alternar_breakpoint(self, archivo: str, linea: int) -> None:
+        clave = (archivo, linea)
+        if clave in self._breakpoints:
+            numero = self._breakpoints.pop(clave)
+            if self._depurador is not None and numero is not None:
+                await self._depurador.borrar_breakpoint(numero)
+        else:
+            numero = await self._depurador.breakpoint(archivo, linea) if self._depurador is not None else None
+            self._breakpoints[clave] = numero
+        self.emitir(ev.BreakpointsActualizados(frozenset(self._breakpoints)))
+
+    async def _cerrar_depurador(self) -> None:
+        depurador, self._depurador = self._depurador, None
+        if depurador is not None:
+            await depurador.salir()
+        self._breakpoints = dict.fromkeys(self._breakpoints)  # los números de GDB ya no valen
+
+    async def _depurar(self, comando: ev.Depurar) -> tuple[bool, str]:
+        await self._cerrar_depurador()
+        lectura = await self._compilar_para_depurar()
+        if not lectura.ok:
+            return False, "No compila: corregí los errores antes de depurar"
+        entrada = f"/tmp/construct-entrada-{next(_informes)}"
+        await self.proyecto.canal.escribir_archivo(entrada, comando.entrada)
+        depurador = await GuestGdbBackend(self.proyecto.canal, f"./{puente.BINARIO_DEPURAR}", cwd=self.proyecto.vm)
+        self._depurador, self._salida_vista = depurador, 0
+        await depurador.fijar_argumentos(comando.argumentos, entrada)
+        for archivo, linea in list(self._breakpoints):
+            self._breakpoints[(archivo, linea)] = await depurador.breakpoint(archivo, linea)
+        if not self._breakpoints:
+            await depurador.mi.comando("-break-insert -t main")  # sin breakpoints, frena al empezar
+        await self._detenido(await depurador.correr())
+        return True, "Depurando" if self._depurador is not None else "El programa terminó"
+
+    async def _compilar_para_depurar(self) -> Lectura:
+        fuentes = puente.fuentes_del_proyecto(self.proyecto.carpeta)
+        if not fuentes:
+            raise ValueError("no hay archivos .c para compilar en esta carpeta.")
+        textos = [(self.proyecto.carpeta / f).read_text(encoding="utf-8", errors="replace") for f in fuentes]
+        argv = puente.argv_build(fuentes, puente.BINARIO_DEPURAR, puente.librerias_necesarias(textos))
+        resultado = await self.proyecto.correr([*argv, "--flags", " ".join(puente.FLAGS_DEPURAR)])
+        leida, crudo = _leer(resultado, self.proyecto.vm)
+        lectura = Lectura(resultado.ok, leida.hallazgos, leida.datos, crudo, resultado.codigo)
+        self._publicar("daedalus", lectura)
+        return lectura
+
+    def _salida_de_depuracion(self) -> None:
+        if self._depurador is None:
+            return
+        nueva = self._depurador.mi.salida_programa[self._salida_vista:]
+        self._salida_vista += len(nueva)
+        if nueva:
+            self.emitir(ev.SalidaPrograma("".join(nueva).encode()))
+
+    async def _detenido(self, detencion: Detencion) -> None:
+        self._salida_de_depuracion()
+        depurador = self._depurador
+        if depurador is None:
+            return
+        if detencion.termino or detencion.motivo == "gdb-terminado":
+            await self._cerrar_depurador()
+            self.emitir(ev.DepuracionTerminada(detencion.codigo_salida, detencion.senal))
+            return
+        pila = tuple(ev.MarcoDePila(m.nivel, m.funcion, puente.ruta_en_host(m.archivo, self.proyecto.vm), m.linea)
+                     for m in await depurador.pila())
+        variables = MappingProxyType(await depurador.variables())
+        motivo = f"señal {detencion.senal}" if detencion.senal else detencion.motivo
+        self.emitir(ev.DepuracionDetenida(motivo, puente.ruta_en_host(detencion.archivo, self.proyecto.vm),
+                                          detencion.linea, detencion.funcion, pila, variables))
+
+    async def _memoria(self, comando: ev.InspeccionarMemoria) -> tuple[bool, str]:
+        resultado = await self.proyecto.correr(puente.argv_bishop(comando.archivo, comando.linea),
+                                               entrada=comando.entrada)
+        datos = puente.extraer_json(resultado.texto())
+        if not datos:
+            self.emitir(ev.SalidaDeHerramienta("bishop", _crudo(resultado)))
+            return False, "bishop no pudo tomar la foto de la memoria"
+        self.emitir(ev.MemoriaBishop(MappingProxyType(datos)))
+        fugas = datos.get("fugas_detectadas") or 0
+        return True, f"bishop: {datos.get('total_bloques_heap', 0)} bloque(s) en el heap" + (
+            f", {fugas} fuga(s)" if fugas else "")
+

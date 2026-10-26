@@ -154,6 +154,15 @@ class Depurador:
         datos = await self.mi.comando(f"-break-insert {archivo}:{linea}")
         return int(datos["bkpt"]["number"])
 
+    async def borrar_breakpoint(self, numero: int) -> None:
+        await self.mi.comando(f"-break-delete {numero}")
+
+    async def fijar_argumentos(self, argumentos: Sequence[str], entrada: str | None = None) -> None:
+        """Argumentos del programa y, con `entrada`, el archivo del que lee su entrada estándar (la de
+        GDB lleva los comandos MI). GDB los pasa por el shell del Guest: se citan como en sh."""
+        partes = [_citar(a) for a in argumentos] + ([f"< {_citar(entrada)}"] if entrada else [])
+        await self.mi.comando("-exec-arguments " + " ".join(partes) if partes else "-exec-arguments")
+
     async def correr(self) -> Detencion:
         await self.mi.comando("-exec-run")
         return await self.mi.esperar_detencion()

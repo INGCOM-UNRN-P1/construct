@@ -9,9 +9,10 @@ pasar entre tareas o hilos sin copiarlo.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from construct.core.telemetry import Muestra
@@ -26,6 +27,8 @@ class Tarea(StrEnum):
     EJECUTAR = "ejecutar"
     PROBAR = "probar"
     SINCRONIZAR = "sincronizar"
+    DEPURAR = "depurar"
+    MEMORIA = "memoria"
 
 
 class ModoEjecucion(StrEnum):
@@ -35,6 +38,15 @@ class ModoEjecucion(StrEnum):
     """Binario instrumentado con ASan/UBSan y explicado por tetsuo."""
     AISLADO = "aislado"
     """Dentro del sandbox de nostromo, con sus cuotas."""
+
+
+class Paso(StrEnum):
+    SIGUIENTE = "siguiente"
+    """F10: step over."""
+    ENTRAR = "entrar"
+    """F11: step into."""
+    CONTINUAR = "continuar"
+    """Hasta el próximo breakpoint o el final."""
 
 
 class AccionSync(StrEnum):
@@ -103,7 +115,46 @@ class Sincronizar:
     accion: AccionSync = AccionSync.COMPLETA
 
 
-Comando = Compilar | Auditar | AplicarAutofix | Ejecutar | EnviarEntrada | Interrumpir | Probar | Sincronizar
+@dataclass(frozen=True)
+class AlternarBreakpoint:
+    """F9: pone o saca un breakpoint (ruta relativa al proyecto); vale también antes de depurar."""
+
+    archivo: str
+    linea: int
+
+
+@dataclass(frozen=True)
+class Depurar:
+    """Compila con -g -O0 y corre el programa en el GDB del Guest hasta el primer breakpoint.
+
+    `entrada` es la entrada estándar completa del programa (GDB usa la suya para los comandos MI).
+    """
+
+    argumentos: tuple[str, ...] = ()
+    entrada: bytes = b""
+
+
+@dataclass(frozen=True)
+class Avanzar:
+    paso: Paso = Paso.SIGUIENTE
+
+
+@dataclass(frozen=True)
+class TerminarDepuracion:
+    pass
+
+
+@dataclass(frozen=True)
+class InspeccionarMemoria:
+    """bishop: foto de la pila y el heap en `archivo:linea`, con la misma entrada de la depuración."""
+
+    archivo: str
+    linea: int
+    entrada: bytes = b""
+
+
+Comando = (Compilar | Auditar | AplicarAutofix | Ejecutar | EnviarEntrada | Interrumpir | Probar | Sincronizar
+           | AlternarBreakpoint | Depurar | Avanzar | TerminarDepuracion | InspeccionarMemoria)
 
 
 # --- Eventos (núcleo → interfaz) --------------------------------------------------------------
@@ -197,6 +248,44 @@ class ArtefactoDescargado:
     ruta: Path
 
 
+@dataclass(frozen=True)
+class BreakpointsActualizados:
+    breakpoints: frozenset[tuple[str, int]]
+
+
+@dataclass(frozen=True)
+class MarcoDePila:
+    nivel: int
+    funcion: str
+    archivo: str | None
+    linea: int | None
+
+
+@dataclass(frozen=True)
+class DepuracionDetenida:
+    """El programa se detuvo (breakpoint o paso): el editor marca la línea y se actualiza Registros."""
+
+    motivo: str
+    archivo: str | None
+    linea: int | None
+    funcion: str | None
+    pila: tuple[MarcoDePila, ...] = ()
+    variables: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+
+
+@dataclass(frozen=True)
+class DepuracionTerminada:
+    codigo: int | None
+    senal: str | None = None
+
+
+@dataclass(frozen=True)
+class MemoriaBishop:
+    """El snapshot de bishop (`frames`/`stack`, `heap`, `fugas_detectadas`…) para `bishop_view`."""
+
+    datos: Mapping[str, Any]
+
+
 Evento = (TareaIniciada | TareaTerminada | ErrorDeTarea | HallazgosRecibidos | SalidaDeHerramienta | SalidaPrograma
           | ProgramaTerminado | MuestraTelemetria | PostMortem | ResultadoPrueba | SincronizacionTerminada
-          | ArtefactoDescargado)
+          | ArtefactoDescargado | BreakpointsActualizados | DepuracionDetenida | DepuracionTerminada | MemoriaBishop)
