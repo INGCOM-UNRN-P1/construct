@@ -39,7 +39,12 @@ from urllib.parse import urljoin, urlsplit
 from construct.platform.host_info import Arquitectura
 
 SCHEMA_MANIFIESTO = "1.0.0"
-MANIFIESTO_POR_DEFECTO = "https://github.com/INGCOM-UNRN-P1/construct/releases/latest/download/imagenes.json"
+IMAGEN_VERSION = "0.1.0"
+"""Versión de la imagen del Guest que usa esta versión de construct (tag `imagen-v<versión>`)."""
+MANIFIESTO_POR_DEFECTO = (
+    f"https://github.com/INGCOM-UNRN-P1/construct/releases/download/imagen-v{IMAGEN_VERSION}/imagenes.json"
+)
+"""Fijado a una versión (no `latest`): construct y su imagen cambian juntos, como el protocolo."""
 VARIABLE_MANIFIESTO = "CONSTRUCT_MANIFIESTO"
 INVENTARIO = "instaladas.json"
 PROTOCOLOS_SOPORTADOS = frozenset({1})
