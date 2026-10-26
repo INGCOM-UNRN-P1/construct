@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from yutani.doctor import Chequeo
 
+from construct.core import imagenes
 from construct.core.config import Config
 from construct.platform import accel as aceleracion
 from construct.platform import binarios
@@ -68,11 +69,17 @@ def _componente_aceleracion(host: HostInfo, esperado: aceleracion.Acelerador, de
     return Componente.KVM_PERMISOS if "permiso" in detalle else Componente.KVM_AUSENTE
 
 
+def resolver_aceleracion(entorno: Entorno) -> aceleracion.Aceleracion:
+    """Acelerador y arquitectura del Guest según el Host y `[vm]`; ValueError si la configuración es inválida."""
+    vm = entorno.config.vm
+    return aceleracion.detectar(entorno.host, acelerador=vm.accel, arquitectura=vm.arch,
+                                sondas=entorno.sondas_aceleracion)
+
+
 def _aceleracion(entorno: Entorno) -> tuple[Chequeo, Arquitectura | None]:
-    host, vm = entorno.host, entorno.config.vm
+    host = entorno.host
     try:
-        elegida = aceleracion.detectar(host, acelerador=vm.accel, arquitectura=vm.arch,
-                                       sondas=entorno.sondas_aceleracion)
+        elegida = resolver_aceleracion(entorno)
     except ValueError as error:
         return Chequeo("aceleración", True, False, str(error), "acelerar la VM por hardware",
                        "Corregí `[vm]` en project.toml."), None
@@ -88,6 +95,22 @@ def _aceleracion(entorno: Entorno) -> tuple[Chequeo, Arquitectura | None]:
     componente = _componente_aceleracion(host, elegida.esperado, elegida.detalle)
     return Chequeo("aceleración", True, False, elegida.detalle, "acelerar la VM por hardware",
                    sugerencia(componente, host)), arq
+
+
+def _imagen(entorno: Entorno, arq: Arquitectura) -> Chequeo:
+    nombre = f"imagen del Guest ({arq.value})"
+    proposito = "sistema Alpine con el perfil estudiante"
+    try:
+        imagen = imagenes.instalada(entorno.directorios.imagenes, arq)
+    except imagenes.ErrorDeImagen as error:
+        return Chequeo(nombre, True, False, str(error), proposito, "Ejecutá `construct setup --forzar`.")
+    if imagen is None:
+        return Chequeo(nombre, True, False, "no descargada", proposito, "Ejecutá `construct setup`.")
+    if not imagen.completa():
+        return Chequeo(nombre, True, False, f"versión {imagen.version} incompleta en {imagen.carpeta}", proposito,
+                       "Ejecutá `construct setup --forzar`.")
+    return Chequeo(nombre, True, True, f"versión {imagen.version} (protocolo {imagen.protocolo}) en {imagen.carpeta}",
+                   proposito)
 
 
 def _version_ok(encontrado: binarios.Ejecutable, minima: binarios.Version) -> bool:
@@ -149,13 +172,16 @@ def _gdb_dev(entorno: Entorno) -> Chequeo:
     return Chequeo("gdb (desarrollo)", True, True, f"{encontrado.texto_version} ({encontrado.ruta})", proposito)
 
 
-def chequeos(entorno: Entorno, *, dev: bool = False) -> list[Chequeo]:
+def chequeos(entorno: Entorno, *, dev: bool = False, imagen: bool = True) -> list[Chequeo]:
+    """Todos los chequeos del Host; `imagen=False` omite el de la imagen (lo usa `setup` antes de bajarla)."""
     resultado = [_sistema(entorno.host)]
     resultado += [c for c in (_arquitectura(entorno.host), _wsl(entorno.host)) if c is not None]
     chequeo_aceleracion, arq = _aceleracion(entorno)
     resultado.append(chequeo_aceleracion)
     if arq is not None:
         resultado.append(_qemu(entorno, arq))
+        if imagen:
+            resultado.append(_imagen(entorno, arq))
     resultado += [_git(entorno), _espacio(entorno), _memoria(entorno.host)]
     if dev or entorno.config.dev.habilitado:
         resultado.append(_gdb_dev(entorno))

@@ -30,12 +30,37 @@ def por_nombre(lista: list[Chequeo]) -> dict[str, Chequeo]:
     return {c.nombre: c for c in lista}
 
 
-def test_linux_completo_da_ok() -> None:
+def instalar_imagen(tmp_path: Path, arquitectura: Arquitectura = Arquitectura.X86_64) -> None:
+    from construct.core import imagenes
+    from tests.test_imagenes import publicar
+
+    manifiesto = imagenes.obtener_manifiesto(str(publicar(tmp_path / "release")))
+    imagenes.instalar(manifiesto, arquitectura, directorios().imagenes)
+
+
+def test_linux_completo_da_ok(tmp_path: Path) -> None:
+    instalar_imagen(tmp_path)
     resultado = chequeos(entorno(crear_host()))
     datos = informe("construct", "0.1.0", resultado)
     assert datos["ok"], datos
-    assert list(por_nombre(resultado)) == ["sistema", "aceleración", "qemu-system-x86_64", "git",
-                                           "espacio en disco", "memoria"]
+    assert list(por_nombre(resultado)) == ["sistema", "aceleración", "qemu-system-x86_64",
+                                           "imagen del Guest (x86_64)", "git", "espacio en disco", "memoria"]
+
+
+def test_sin_imagen_sugiere_setup() -> None:
+    imagen = por_nombre(chequeos(entorno(crear_host())))["imagen del Guest (x86_64)"]
+    assert imagen.requerido and not imagen.ok and "construct setup" in imagen.sugerencia
+
+
+def test_imagen_incompleta(tmp_path: Path) -> None:
+    instalar_imagen(tmp_path)
+    next(directorios().imagenes.rglob("rootfs.qcow2")).unlink()
+    imagen = por_nombre(chequeos(entorno(crear_host())))["imagen del Guest (x86_64)"]
+    assert not imagen.ok and "--forzar" in imagen.sugerencia
+
+
+def test_sin_chequeo_de_imagen_para_setup() -> None:
+    assert not any(c.nombre.startswith("imagen") for c in chequeos(entorno(crear_host()), imagen=False))
 
 
 def test_sin_permiso_sobre_kvm_sugiere_el_grupo() -> None:
@@ -54,7 +79,8 @@ def test_windows_sin_whpx_y_sin_qemu() -> None:
     assert not informe("construct", "0.1.0", resultado.values())["ok"]
 
 
-def test_apple_silicon_bajo_rosetta() -> None:
+def test_apple_silicon_bajo_rosetta(tmp_path: Path) -> None:
+    instalar_imagen(tmp_path, Arquitectura.AARCH64)
     host = crear_host(Sistema.MACOS, Arquitectura.AARCH64, emulado=True)
     archivos = {"/opt/homebrew/bin/qemu-system-aarch64": "QEMU emulator version 10.0.0",
                 "/opt/homebrew/bin/git": "git version 2.46.0"}
@@ -65,7 +91,8 @@ def test_apple_silicon_bajo_rosetta() -> None:
     assert informe("construct", "0.1.0", resultado.values())["ok"]
 
 
-def test_tcg_elegido_por_el_usuario_es_advertencia() -> None:
+def test_tcg_elegido_por_el_usuario_es_advertencia(tmp_path: Path) -> None:
+    instalar_imagen(tmp_path)
     config = Config(vm=ConfigVM(accel="tcg"))
     resultado = por_nombre(chequeos(entorno(crear_host(), config=config)))
     assert not resultado["aceleración"].requerido
