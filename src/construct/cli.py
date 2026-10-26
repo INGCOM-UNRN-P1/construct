@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import time
 from collections.abc import Coroutine
 from dataclasses import asdict
@@ -199,6 +200,28 @@ def sync(
     if accion not in ("todo", "subir", "bajar", "artefactos", "estado"):
         raise typer.BadParameter("tiene que ser subir, bajar, artefactos o estado", param_hint="ACCIÓN")
     raise typer.Exit(_correr(comandos.sync(accion, json_salida)))
+
+
+dev_app = TyperConErrores(name="dev", context_settings=dict(CONTEXTO), no_args_is_help=True,
+                          help="Modo desarrollo (PLAN §3.4): GDB del Host contra el gdbserver del Guest.")
+app.add_typer(dev_app, name="dev", hidden=True)
+
+
+@dev_app.command("gdbserver", context_settings={"allow_interspersed_args": False})
+def dev_gdbserver(binario: str = typer.Argument(..., help="Programa en la VM."),
+                  argumentos: list[str] = typer.Argument(None, help="Argumentos del programa.")) -> None:
+    """gdbserver del Guest por esta entrada/salida estándar: `target remote | construct dev gdbserver …`."""
+    raise typer.Exit(_correr(comandos.dev_gdbserver(binario, argumentos or [])))
+
+
+@dev_app.command("gdb", context_settings={"allow_interspersed_args": False})
+def dev_gdb(binario: str = typer.Argument(None, show_default=False, help="Programa en la VM (por defecto, compila)."),
+            argumentos: list[str] = typer.Argument(None, help="Argumentos del programa.")) -> None:
+    """Abre el GDB del Host conectado al programa en la VM (con sysroot y rutas de los fuentes)."""
+    comando = asyncio.run(comandos.preparar_dev_gdb(binario, argumentos or []))
+    if comando is None:
+        raise typer.Exit(1)
+    raise typer.Exit(subprocess.run(comando, check=False).returncode)  # GDB queda dueño de la terminal
 
 
 def _setup_json(resultado: ResultadoSetup) -> dict[str, Any]:

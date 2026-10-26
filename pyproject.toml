@@ -35,6 +35,8 @@ dependencies = [
     "platformdirs>=4.0",
     # Núcleo común del ecosistema (LINEAMIENTOS §3.2 y §3.4): contrato CLI, doctor, hallazgos e IA.
     "yutani @ git+https://github.com/INGCOM-UNRN-P1/yutani@6f95ad93c661adb4493414c6cc57534a18e8f2e0",
+    # Sólo el parser de GDB/MI: GDB corre en el Guest (decisión D2), salvo en modo desarrollo.
+    "pygdbmi>=0.11",
 ]
 
 [project.urls]

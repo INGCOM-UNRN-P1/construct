@@ -26,6 +26,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "platformdirs" },
+    { name = "pygdbmi" },
     { name = "rich" },
     { name = "typer" },
     { name = "yutani" },
@@ -39,6 +40,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "platformdirs", specifier = ">=4.0" },
+    { name = "pygdbmi", specifier = ">=0.11" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "typer", specifier = ">=0.12" },
     { name = "yutani", git = "https://github.com/INGCOM-UNRN-P1/yutani?rev=6f95ad93c661adb4493414c6cc57534a18e8f2e0" },
@@ -102,6 +104,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/bf/db/7fc19e6f2dc92a966727031389fc2e08b558f0f25eb7403c1119ad4713cd/pluggy-1.7.0.tar.gz", hash = "sha256:d1eaa46ebb595891b860ab086b4d09c8588af65ebd4361b8e8f4bb8920b90ba8", size = 123304, upload-time = "2026-10-15T09:50:58.343Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/40/9e/2b38731e0fc536806f16490e1a12d7f0dc2a1235aa8cc07bcc75416a7daa/pluggy-1.7.0-py3-none-any.whl", hash = "sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec", size = 27082, upload-time = "2026-10-15T09:50:56.808Z" },
+]
+
+[[package]]
+name = "pygdbmi"
+version = "0.11.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/d0/d386ad42b12b90e60293c56a3b793910f34aa21c63f7ddc8a857e498d458/pygdbmi-0.11.0.0.tar.gz", hash = "sha256:7a286be2fcf25650d9f66e11adc46e972cf078a466864a700cd44739ad261fb0", size = 24648, upload-time = "2023-01-29T16:10:55.65Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/4b/71df806f4d260ddf01f9e431f5a6538a4155db3ec84a131d7e087178c591/pygdbmi-0.11.0.0-py3-none-any.whl", hash = "sha256:f7cac28e1d558927444c880ed1e65da1a5d8686121a3aac16f42fb84d3ceb60d", size = 21258, upload-time = "2023-01-29T16:10:53.171Z" },
 ]
 
 [[package]]

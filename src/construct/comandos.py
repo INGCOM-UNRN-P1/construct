@@ -31,6 +31,7 @@ from construct.platform import binarios, host
 from construct.platform.paths import directorios
 
 consola = Console(stderr=True, highlight=False)
+VARIABLE_DEV = "CONSTRUCT_DEV"
 COLORES = {"error": "bold red", "advertencia": "yellow", "estilo": "cyan", "info": "blue"}
 
 
@@ -338,3 +339,70 @@ async def sync(accion: str, como_json: bool) -> int:
     if traidos:
         consola.print("[green]✓[/green] Cambios de la VM incorporados.")
     return 0
+
+
+# --- Modo desarrollo (PLAN §3.4) --------------------------------------------------------------
+
+
+def exigir_modo_desarrollo(config: Config) -> None:
+    if not (config.dev.habilitado or os.environ.get(VARIABLE_DEV)):
+        raise ValueError("el modo desarrollo está apagado: activalo con `[dev] habilitado = true` en project.toml "
+                         f"(o con {VARIABLE_DEV}=1).")
+
+
+async def dev_gdbserver(binario: str, argumentos: Sequence[str]) -> int:
+    """Une esta entrada/salida estándar con un `gdbserver -` del Guest (para `target remote | …`)."""
+    exigir_modo_desarrollo(cargar_del_directorio(Path.cwd()))
+    async with abrir_proyecto(subir=False) as proyecto:
+        proceso = await proyecto.canal.ejecutar(["gdbserver", "-", binario, *argumentos], cwd=proyecto.vm)
+        if proceso.error:
+            consola.print(f"[bold red]Error:[/bold red] {escape(proceso.error)}")
+            return 1
+        return await conectar_terminal(proceso, reenviar_ctrl_c=False)
+
+
+def bibliotecas_de_ldd(salida: str) -> list[str]:
+    """Rutas absolutas de las bibliotecas que informa `ldd` (para armar el sysroot del GDB local)."""
+    rutas = []
+    for linea in salida.splitlines():
+        partes = linea.split()
+        candidata = partes[2] if len(partes) >= 3 and partes[1] == "=>" else partes[0] if partes else ""
+        if candidata.startswith("/"):
+            rutas.append(candidata)
+    return rutas
+
+
+async def preparar_dev_gdb(binario: str | None, argumentos: Sequence[str]) -> list[str] | None:
+    """Baja binario y bibliotecas como sysroot y devuelve la línea del GDB del Host (None si no compila)."""
+    exigir_modo_desarrollo(cargar_del_directorio(Path.cwd()))
+    gdb = binarios.buscar_gdb(host())
+    if gdb is None:
+        raise ValueError("no se encontró GDB en el Host: ejecutá `construct doctor --dev`.")
+    async with abrir_proyecto() as proyecto:
+        if binario is None:
+            ok, hallazgos = await compilar(proyecto, puente.fuentes_del_proyecto(proyecto.carpeta),
+                                           puente.BINARIO_POR_DEFECTO)
+            if not ok:
+                mostrar_hallazgos(hallazgos)
+                return None
+            binario = puente.BINARIO_POR_DEFECTO
+        sysroot = directorios().cache / "sysroot"
+        ldd = await proyecto.correr(["ldd", binario])
+        remoto = binario if binario.startswith("/") else f"{proyecto.vm}/{binario}"
+        for ruta in [remoto, *bibliotecas_de_ldd(ldd.texto())]:
+            destino = sysroot / ruta.lstrip("/")
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            destino.write_bytes(await proyecto.canal.leer_archivo(ruta))
+        vm, carpeta = proyecto.vm, proyecto.carpeta
+    puente_gdbserver = " ".join(citar_shell(p) for p in (sys.executable, "-m", "construct", "dev", "gdbserver",
+                                                         binario, *argumentos))
+    # debuginfod no sirve: las bibliotecas son las del Guest, no las de la distro del Host.
+    comando = [gdb.ruta, "-q", "-ex", "set debuginfod enabled off", "-ex", f"set sysroot {sysroot}", "-ex", f"set substitute-path {vm} {carpeta}",
+               "-ex", f"target remote | {puente_gdbserver}", str(sysroot / remoto.lstrip("/"))]
+    consola.print(f"[dim]GDB local: target remote | {escape(puente_gdbserver)}[/dim]")
+    return comando
+
+
+def citar_shell(parte: str) -> str:
+    seguros = "-_./:=@+"
+    return parte if parte and all(c.isalnum() or c in seguros for c in parte) else "'" + parte.replace("'", "'\\''") + "'"
