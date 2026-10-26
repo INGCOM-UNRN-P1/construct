@@ -2,7 +2,8 @@
 
 Cada comando abre el proyecto (sesión de VM, canal y `construct sync subir` si `[sync] automatico`),
 le pide el trabajo a las herramientas del Guest por medio de `core/tool_bridge.py` y, al terminar,
-baja los artefactos. Acá vive sólo la presentación en la terminal; la lógica está en `core/`.
+baja los artefactos. Acá vive sólo la presentación en la terminal; el trabajo lo hace
+`core/orquestador.py`, el mismo que usa la interfaz.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import os
 import sys
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -20,11 +21,12 @@ from rich.console import Console
 from rich.markup import escape
 
 from construct.consola import conectar_terminal
+from construct.core import orquestador as orq
 from construct.core import telemetry as telemetria
 from construct.core import tool_bridge as puente
-from construct.core.channel import Canal, ErrorRemoto, Resultado
 from construct.core.cliente import asegurar_sesion, conectar_sesion
 from construct.core.config import Config, cargar_del_directorio
+from construct.core.orquestador import Lectura, Proyecto, resumen
 from construct.core.protocolo import Marco, Tipo
 from construct.core.sync_manager import ErrorDeSync, SyncManager
 from construct.platform import binarios, host
@@ -33,21 +35,6 @@ from construct.platform.paths import directorios
 consola = Console(stderr=True, highlight=False)
 VARIABLE_DEV = "CONSTRUCT_DEV"
 COLORES = {"error": "bold red", "advertencia": "yellow", "estilo": "cyan", "info": "blue"}
-
-
-@dataclass
-class Proyecto:
-    carpeta: Path
-    config: Config
-    canal: Canal
-    sync: SyncManager
-
-    @property
-    def vm(self) -> str:
-        return self.sync.vm
-
-    async def correr(self, argv: list[str], entrada: bytes | None = None) -> Resultado:
-        return await self.canal.correr(argv, entrada=entrada, cwd=self.vm)
 
 
 @asynccontextmanager
@@ -87,20 +74,14 @@ def mostrar_hallazgos(hallazgos: Sequence[dict[str, Any]]) -> None:
             consola.print(f"            [green]→ {escape(str(h['sugerencia']))}[/green]")
 
 
-def resumen(hallazgos: Sequence[dict[str, Any]]) -> str:
-    cuenta: dict[str, int] = {}
-    for h in hallazgos:
-        cuenta[str(h.get("severidad", "info"))] = cuenta.get(str(h.get("severidad", "info")), 0) + 1
-    return ", ".join(f"{n} {s}" for s, n in sorted(cuenta.items())) or "sin hallazgos"
-
-
 def emitir_json(datos: dict[str, Any]) -> None:
     print(json.dumps({"schema_version": "1.0.0", "herramienta": "construct", **datos}, ensure_ascii=False, indent=2))
 
 
-def _salida_cruda(resultado: Resultado) -> None:
+def _salida_cruda(lectura: Lectura) -> None:
     """Lo que dijo la herramienta cuando no hay JSON que leer (falló antes de poder informarlo)."""
-    sys.stderr.write(resultado.salida.decode(errors="replace") + resultado.errores.decode(errors="replace"))
+    if lectura.crudo is not None:
+        sys.stderr.write(lectura.crudo)
 
 
 # --- Comandos ---------------------------------------------------------------------------------
@@ -108,16 +89,9 @@ def _salida_cruda(resultado: Resultado) -> None:
 
 async def compilar(proyecto: Proyecto, fuentes: Sequence[str], salida: str, *,
                    sanitizers: bool = False) -> tuple[bool, list[dict[str, Any]]]:
-    textos = [(proyecto.carpeta / f).read_text(encoding="utf-8", errors="replace") for f in fuentes
-              if (proyecto.carpeta / f).is_file()]
-    argv = puente.argv_build(fuentes, salida, puente.librerias_necesarias(textos))
-    if sanitizers:
-        argv += ["--flags", " ".join(puente.FLAGS_SANITIZERS)]
-    resultado = await proyecto.correr(argv)
-    leida = puente.leer_salida(resultado.texto(), proyecto.vm)
-    if not leida.datos:
-        _salida_cruda(resultado)
-    return resultado.ok, leida.hallazgos
+    lectura = await orq.compilar(proyecto, fuentes, salida, sanitizers=sanitizers)
+    _salida_cruda(lectura)
+    return lectura.ok, lectura.hallazgos
 
 
 async def build(fuentes: Sequence[str], salida: str, como_json: bool) -> int:
@@ -140,18 +114,16 @@ async def build(fuentes: Sequence[str], salida: str, como_json: bool) -> int:
 
 async def check(objetivo: str, como_json: bool) -> int:
     async with abrir_proyecto() as proyecto:
-        resultado = await proyecto.correr(puente.argv_check(objetivo))
-    leida = puente.leer_salida(resultado.texto(), proyecto.vm)
-    if not leida.datos:
-        _salida_cruda(resultado)
-        return resultado.codigo or 1
-    errores = sum(1 for h in leida.hallazgos if h.get("severidad") == "error")
+        lectura = await orq.auditar(proyecto, objetivo)
+    if lectura.crudo is not None:
+        _salida_cruda(lectura)
+        return lectura.codigo
     if como_json:
-        emitir_json({"ok": errores == 0, "hallazgos": leida.hallazgos})
+        emitir_json({"ok": lectura.ok, "hallazgos": lectura.hallazgos})
     else:
-        mostrar_hallazgos(leida.hallazgos)
-        consola.print(f"{'[green]✓[/green]' if errores == 0 else '[bold red]✗[/bold red]'} ripley: {resumen(leida.hallazgos)}.")
-    return 0 if errores == 0 else 1
+        mostrar_hallazgos(lectura.hallazgos)
+        consola.print(f"{'[green]✓[/green]' if lectura.ok else '[bold red]✗[/bold red]'} ripley: {resumen(lectura.hallazgos)}.")
+    return 0 if lectura.ok else 1
 
 
 async def fix(rutas: Sequence[str]) -> int:
@@ -177,10 +149,10 @@ async def fix(rutas: Sequence[str]) -> int:
 async def _post_mortem(proyecto: Proyecto, binario: str, argumentos: Sequence[str], entrada: bytes) -> None:
     """RF-04: ante una señal fatal, hal explica la causa (vuelve a correr el programa con la misma entrada)."""
     consola.print("[dim]El programa terminó con un fallo: hal lo analiza…[/dim]")
-    resultado = await proyecto.correr(puente.argv_hal(f"./{binario}", argumentos, entrada.decode(errors="replace")))
-    datos = puente.extraer_json(resultado.texto()) or {}
-    if not datos:
-        _salida_cruda(resultado)
+    lectura = await orq.diagnosticar_crash(proyecto, binario, argumentos, entrada)
+    datos = lectura.datos
+    if not lectura.ok:
+        _salida_cruda(lectura)
         return
     lugar = f"{datos.get('archivo') or '?'}:{datos.get('linea') or '?'}"
     consola.print(f"\n[bold red]{escape(str(datos.get('causa_raiz_titulo') or datos.get('tipo_senal') or 'Fallo'))}"
@@ -188,22 +160,6 @@ async def _post_mortem(proyecto: Proyecto, binario: str, argumentos: Sequence[st
     for clave, color in (("explicacion", "white"), ("accion_correctiva", "green")):
         if datos.get(clave):
             consola.print(f"[{color}]{escape(str(datos[clave]))}[/{color}]")
-
-
-async def _informe_de_ejecucion(proyecto: Proyecto, ruta: str) -> list[dict[str, Any]]:
-    """Lo que dejó libconstruct_preload (si el programa terminó normalmente), ubicado con addr2line."""
-    try:
-        datos = json.loads(await proyecto.canal.leer_archivo(ruta))
-    except (ErrorRemoto, ValueError):
-        return []  # terminó con una señal o sin el preload: no hay informe
-    await proyecto.correr(["rm", "-f", ruta])
-    ubicaciones: dict[tuple[str, str], telemetria.Ubicacion] = {}
-    for modulo, offsets in telemetria.offsets_por_modulo(datos).items():
-        ruta_modulo = modulo if modulo.startswith("/") else f"{proyecto.vm}/{modulo.removeprefix('./')}"
-        salida = await proyecto.correr(telemetria.argv_addr2line(ruta_modulo, offsets))
-        for offset, lugar in telemetria.parsear_addr2line(salida.texto(), offsets).items():
-            ubicaciones[(modulo, offset)] = lugar
-    return telemetria.analizar_informe(datos, ubicaciones, lambda r: puente.ruta_en_host(r, proyecto.vm))
 
 
 async def run(binario: str | None, argumentos: Sequence[str], *, tetsuo: bool, aislado: bool) -> int:
@@ -225,38 +181,30 @@ async def run(binario: str | None, argumentos: Sequence[str], *, tetsuo: bool, a
                 mostrar_hallazgos(hallazgos)
                 consola.print("[bold red]✗ No se pudo compilar con AddressSanitizer y UBSan.[/bold red]")
                 return 1
-            resultado = await proyecto.correr(puente.argv_tetsuo(f"./{puente.BINARIO_TETSUO}",
-                                                                 (entrada or b"").decode(errors="replace")))
-            leida = puente.leer_salida(resultado.texto(), proyecto.vm)
-            if not leida.datos:
-                _salida_cruda(resultado)
-            mostrar_hallazgos(leida.hallazgos)
-            consola.print(f"tetsuo: {resumen(leida.hallazgos)}.")
-            return 0 if not leida.hallazgos else 1
+            lectura = await orq.tetsuo(proyecto, puente.BINARIO_TETSUO, entrada or b"")
+            _salida_cruda(lectura)
+            mostrar_hallazgos(lectura.hallazgos)
+            crudo = str(lectura.datos.get("raw_output") or "").strip()
+            if not lectura.ok and not lectura.hallazgos and crudo:
+                sys.stderr.write(crudo + "\n")
+            consola.print(f"{escape(orq.resumen_tetsuo(lectura))}.")
+            return 0 if lectura.ok else 1
 
         if aislado:
-            resultado = await proyecto.correr(puente.argv_nostromo(
-                f"./{binario}", argumentos, entrada=(entrada or b"").decode(errors="replace")))
-            datos = puente.extraer_json(resultado.texto()) or {}
-            if not datos:
-                _salida_cruda(resultado)
-                return resultado.codigo or 1
-            sys.stdout.write(str(datos.get("stdout", "")))
-            sys.stderr.write(str(datos.get("stderr", "")))
-            codigo = int(datos.get("codigo_retorno", resultado.codigo))
-            tipo = str(datos.get("error_tipo") or "")
-            if tipo == "TIMEOUT":
-                consola.print("[bold red]El programa superó el tiempo límite del sandbox.[/bold red]")
-            elif tipo in ("MEMORY", "MEMORIA", "OOM"):
-                consola.print("[bold red]El programa superó el límite de memoria del sandbox.[/bold red]")
-            elif tipo:
-                consola.print(f"[bold red]El programa terminó con código {codigo}[/bold red] [dim](nostromo: {escape(tipo)})[/dim]")
-            return codigo
+            lectura = await orq.nostromo(proyecto, binario, argumentos, entrada or b"")
+            if lectura.crudo is not None:
+                _salida_cruda(lectura)
+                return lectura.codigo
+            sys.stdout.write(str(lectura.datos.get("stdout", "")))
+            sys.stderr.write(str(lectura.datos.get("stderr", "")))
+            motivo = orq.explicar_nostromo(str(lectura.datos.get("error_tipo") or ""), lectura.codigo)
+            if motivo:
+                consola.print(f"[bold red]{escape(motivo)}[/bold red]")
+            return lectura.codigo
 
-        informe = f"/tmp/construct-informe-{os.getpid()}-{id(proyecto)}.json"
-        proceso = await proyecto.canal.ejecutar(
-            [f"./{binario}", *argumentos], cwd=proyecto.vm, telemetria_ms=100,
-            env={"LD_PRELOAD": telemetria.PRELOAD, "CONSTRUCT_INFORME": informe})
+        informe = orq.ruta_de_informe()
+        proceso = await proyecto.canal.ejecutar([f"./{binario}", *argumentos], cwd=proyecto.vm, telemetria_ms=100,
+                                                env=orq.entorno_de_telemetria(informe))
         enviada = bytearray()
         marcos: list[Marco] = []
         codigo = await conectar_terminal(proceso, registro_entrada=enviada, otros=marcos)
@@ -265,7 +213,7 @@ async def run(binario: str | None, argumentos: Sequence[str], *, tetsuo: bool, a
             return codigo
         hallazgos = telemetria.analizar_muestras(
             [telemetria.Muestra.desde(m.json()) for m in marcos if m.tipo is Tipo.TELEMETRIA])
-        hallazgos += await _informe_de_ejecucion(proyecto, informe)
+        hallazgos += await orq.informe_de_ejecucion(proyecto, informe)
         if hallazgos:
             consola.print("\n[bold]Telemetría de la ejecución[/bold]")
             mostrar_hallazgos(hallazgos)
@@ -276,23 +224,10 @@ async def run(binario: str | None, argumentos: Sequence[str], *, tetsuo: bool, a
 
 async def test(como_json: bool) -> int:
     async with abrir_proyecto() as proyecto:
-        pruebas = puente.pruebas_del_proyecto(proyecto.carpeta)
-        if not pruebas:
+        if not puente.pruebas_del_proyecto(proyecto.carpeta):
             consola.print("No hay pruebas (tests/test_*.c) en este proyecto.")
             return 0
-        fuentes = puente.fuentes_del_proyecto(proyecto.carpeta)
-        resultados = []
-        for prueba in pruebas:
-            compilar_argv, binario = puente.argv_prueba(prueba, fuentes)
-            compilacion = await proyecto.correr(compilar_argv)
-            if not compilacion.ok:
-                resultados.append({"prueba": prueba, "ok": False, "compila": False,
-                                   "salida": compilacion.errores.decode(errors="replace")})
-                continue
-            ejecucion = await proyecto.correr([f"./{binario}"])
-            resultados.append({"prueba": prueba, "ok": ejecucion.ok, "compila": True, "codigo": ejecucion.codigo,
-                               "senal": ejecucion.senal,
-                               "salida": (ejecucion.salida + ejecucion.errores).decode(errors="replace")})
+        resultados = [asdict(r) for r in await orq.correr_pruebas(proyecto)]
     if como_json:
         emitir_json({"ok": all(r["ok"] for r in resultados), "pruebas": resultados})
     else:
