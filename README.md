@@ -2,7 +2,7 @@
 
 IDE pedagógico y orquestador de máquina virtual del perfil `estudiante` de Programación 1
 (UNRN Sede Andina). Corre `daedalus`, `ripley`, `nostromo`, `tetsuo`, `hal`, `bishop` y el resto
-de las herramientas dentro de una VM Alpine acelerada por hardware, con la misma experiencia en
+de las herramientas dentro de una VM Debian acelerada por hardware, con la misma experiencia en
 Windows, macOS y Linux.
 
 > **Estado:** en desarrollo (Fases 1 y 2 de [`PLAN.md`](PLAN.md)). Por ahora están

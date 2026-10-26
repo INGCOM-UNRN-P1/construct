@@ -46,7 +46,7 @@ def argumentos(p: ParametrosVM) -> list[str]:
         "-nodefaults", "-no-user-config", "-display", "none", "-nic", "none",
         "-chardev", f"file,id=consola,path={escapar(p.consola)}", "-serial", "chardev:consola",
         "-kernel", str(p.kernel), "-initrd", str(p.initramfs),
-        "-append", f"root=/dev/vda rootfstype=ext4 modules=virtio_blk,ext4 console={CONSOLA[arq]} quiet",
+        "-append", f"root=/dev/vda rootfstype=ext4 rw console={CONSOLA[arq]} quiet",
         "-drive", f"file={escapar(p.sistema)},if=virtio,format=qcow2,discard=unmap",
         "-drive", f"file={escapar(p.workspace)},if=virtio,format=qcow2,discard=unmap",
         "-device", "virtio-serial-pci",

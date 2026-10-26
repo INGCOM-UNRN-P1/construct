@@ -35,7 +35,7 @@ from construct.platform.terminal import preparar_consola
 
 AYUDA = (
     "IDE pedagógico de Programación 1: corre las herramientas del perfil estudiante dentro de una "
-    "máquina virtual Alpine acelerada por hardware, igual en Windows, macOS y Linux."
+    "máquina virtual Debian acelerada por hardware, igual en Windows, macOS y Linux."
 )
 
 app = crear_app("construct", __version__, AYUDA, errores_extra=(

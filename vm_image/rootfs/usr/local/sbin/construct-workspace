@@ -1,0 +1,17 @@
+#!/bin/sh
+# Disco de trabajo del alumno (workspace.qcow2, segundo disco VirtIO): lo formatea la primera vez y lo
+# monta en /workspace. Sin segundo disco, /workspace queda en el disco del sistema.
+set -eu
+
+DISCO=/dev/vdb
+mkdir -p /workspace
+if [ -b "$DISCO" ]; then
+	if [ -z "$(blkid -o value -s TYPE "$DISCO" 2>/dev/null || true)" ]; then
+		echo "construct-workspace: formateando $DISCO"
+		mkfs.ext4 -q -L workspace "$DISCO"
+	fi
+	mountpoint -q /workspace || mount -t ext4 -o noatime "$DISCO" /workspace
+else
+	echo "construct-workspace: no hay $DISCO, /workspace queda en el disco del sistema"
+fi
+chown estudiante:estudiante /workspace

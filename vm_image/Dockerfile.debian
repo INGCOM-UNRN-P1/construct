@@ -1,0 +1,107 @@
+# Guest de construct: Debian slim + perfil estudiante + librerías C + agente (SPEC §4, PLAN Fase 2).
+#
+# Debian y no Alpine: el gcc de Alpine (musl) no trae AddressSanitizer ni UBSan, que necesitan tetsuo
+# y el paso ASan de ripley (RF-04). Multiarquitectura: `--platform linux/amd64` (Guest x86_64) o
+# `linux/arm64` (Guest aarch64, para hosts ARM: decisión D1). build_vm.sh convierte el contenedor en
+# kernel + initramfs + rootfs.qcow2.
+ARG DEBIAN=trixie
+
+# --- Agente -----------------------------------------------------------------------------------
+FROM docker.io/library/debian:${DEBIAN}-slim AS agente
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends gcc libc6-dev make >/dev/null
+COPY guest_agent/ /src/
+RUN make -C /src all SALIDA=/construct_daemon PRELOAD=/libconstruct_preload.so \
+    && strip /construct_daemon /libconstruct_preload.so
+
+# --- jonesy: binario del release (x86_64) o compilado desde el tag (aarch64) --------------------
+FROM docker.io/library/debian:${DEBIAN}-slim AS jonesy
+ARG TARGETARCH
+ARG JONESY_VERSION=0.1.0
+ARG JONESY_SHA256_X86_64=ac679270f59c9b0d2368d5cb5414dff3d5ac78f631e249faa645a3f4f85b1fcc
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl git \
+        $([ "$TARGETARCH" = amd64 ] || echo cargo) >/dev/null
+RUN set -eu; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        nombre="jonesy-${JONESY_VERSION}-linux-x86_64-musl"; \
+        curl -fsSL -o /tmp/j.tar.gz \
+            "https://github.com/INGCOM-UNRN-P1/jonesy/releases/download/v${JONESY_VERSION}/${nombre}.tar.gz"; \
+        echo "${JONESY_SHA256_X86_64}  /tmp/j.tar.gz" | sha256sum -c -; \
+        tar -xzf /tmp/j.tar.gz -C /tmp; \
+        install -m 0755 "/tmp/${nombre}/jonesy" /jonesy; \
+    else \
+        git -c advice.detachedHead=false clone -q --depth 1 --branch "v${JONESY_VERSION}" \
+            https://github.com/INGCOM-UNRN-P1/jonesy /tmp/jonesy; \
+        cargo build --release --locked --manifest-path /tmp/jonesy/Cargo.toml; \
+        install -m 0755 /tmp/jonesy/target/release/jonesy /jonesy; \
+    fi
+
+# --- Sistema -----------------------------------------------------------------------------------
+FROM docker.io/library/debian:${DEBIAN}-slim
+ARG TARGETARCH
+ARG UV_VERSION=0.7.22
+ARG UV_SHA256_AMD64=8379e040fa1828e662968edaa3856aaeb6e1a0a0ec76ef8583096be1f72f19d4
+ARG UV_SHA256_ARM64=d2ee24524f5ed45baceaddebded48493f7dd2692fad8a1d1796c606134c133b7
+ARG MOTHER_REF=v0.2.0
+ARG TREADSTONE_REF=03055dd4f767a8c1bcca19539f3337f825aa44ba
+ARG BITMAPS_REF=9cce758d8666469f103a2586bf6f9f0008a1ce6f
+ARG SONIDO_REF=2999852077de6d7060269ba71d117c2afd5a414d
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
+
+# Kernel para VM, systemd y lo que necesita el perfil (ecosistema.toml: gcc, gdb, valgrind, bwrap,
+# make); gcc trae libasan y libubsan.
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends \
+        systemd systemd-sysv udev kmod dbus "linux-image-cloud-${TARGETARCH}" initramfs-tools zstd \
+        e2fsprogs util-linux procps iproute2 less \
+        build-essential gdb gdbserver valgrind bubblewrap git python3 ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# initramfs mínimo: lo justo para montar /dev/vda (ext4 sobre VirtIO).
+COPY rootfs/etc/initramfs-tools/modules /etc/initramfs-tools/modules
+RUN sed -i 's/^MODULES=.*/MODULES=list/; s/^#\?COMPRESS=.*/COMPRESS=zstd/' /etc/initramfs-tools/initramfs.conf \
+    && update-initramfs -u -k all \
+    && cp "$(ls /boot/vmlinuz-* | head -1)" /boot/construct-vmlinuz \
+    && cp "$(ls /boot/initrd.img-* | head -1)" /boot/construct-initrd
+
+# uv (Debian no lo empaqueta): binario oficial con su SHA-256 fijado.
+RUN set -eu; \
+    case "$TARGETARCH" in amd64) a=x86_64; s="$UV_SHA256_AMD64" ;; arm64) a=aarch64; s="$UV_SHA256_ARM64" ;; esac; \
+    curl -fsSL -o /tmp/uv.tar.gz "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${a}-unknown-linux-gnu.tar.gz"; \
+    echo "$s  /tmp/uv.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/uv.tar.gz -C /tmp; install -m 0755 /tmp/uv-*/uv /tmp/uv-*/uvx /usr/local/bin/; rm -rf /tmp/uv*
+
+RUN useradd -m -s /bin/bash -u 1000 estudiante \
+    && mkdir -p /workspace && chown estudiante:estudiante /workspace
+
+# Perfil estudiante con mother (sólo desde git, nunca de PyPI). Las herramientas quedan en /opt/p1
+# y sus comandos en /usr/local/bin, para todos los usuarios.
+ENV UV_TOOL_DIR=/opt/p1/herramientas UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_PYTHON_PREFERENCE=only-system UV_NO_CACHE=1
+RUN uv tool install "git+https://github.com/INGCOM-UNRN-P1/mother@${MOTHER_REF}" \
+    && mother instalar --perfil estudiante \
+    && (mother doctor --perfil estudiante || echo "AVISO: mother doctor informó faltantes (ver arriba)")
+
+# tetsuo (ASan/UBSan en español) está en el perfil `analisis`, pero el IDE lo usa en Shift+F5 (SPEC §3.1).
+RUN uv tool install "tetsuo[ecosistema] @ git+https://github.com/INGCOM-UNRN-P1/tetsuo"
+
+COPY instalar_librerias.sh /tmp/instalar_librerias.sh
+RUN sh /tmp/instalar_librerias.sh "$TREADSTONE_REF" "$BITMAPS_REF" "$SONIDO_REF" && rm /tmp/instalar_librerias.sh
+
+COPY --from=jonesy /jonesy /usr/local/bin/jonesy
+COPY --from=agente /construct_daemon /usr/local/sbin/construct_daemon
+COPY --from=agente /libconstruct_preload.so /usr/local/lib/libconstruct_preload.so
+COPY rootfs/ /
+
+# Servicios: agente y disco de trabajo; fuera lo que no hace falta en una VM sin red. systemd usa
+# cgroups v2 (RF-04, RF-06) sin configurar nada.
+RUN set -eu; \
+    systemctl enable construct-workspace.service construct-agent.service; \
+    systemctl mask systemd-timesyncd.service apt-daily.timer apt-daily-upgrade.timer \
+        systemd-networkd-wait-online.service e2scrub_reap.service fstrim.timer 2>/dev/null || true; \
+    systemctl set-default multi-user.target; \
+    passwd -l root >/dev/null; \
+    : > /etc/machine-id
+
+# Versión de la imagen (la escribe build_vm.sh con --build-arg).
+ARG IMAGEN_VERSION=dev
+RUN printf 'version=%s\nprotocolo=1\nbase=debian\n' "$IMAGEN_VERSION" > /etc/construct-imagen

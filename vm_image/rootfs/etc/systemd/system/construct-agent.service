@@ -1,0 +1,15 @@
+[Unit]
+Description=Agente del Guest de construct (puerto VirtIO-Serial construct-ctl)
+After=construct-workspace.service systemd-modules-load.service
+Wants=construct-workspace.service
+
+[Service]
+ExecStart=/usr/local/sbin/construct_daemon --espera-host 120
+# Si se cae, vuelve a arrancar: sin agente la VM no sirve.
+Restart=always
+RestartSec=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

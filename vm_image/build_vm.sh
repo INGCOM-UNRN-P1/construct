@@ -48,16 +48,16 @@ mkdir -p "$DESTINO"
 
 echo "==> Construyendo $ETIQUETA ($PLATAFORMA)"
 "$MOTOR" build --platform "$PLATAFORMA" --build-arg "IMAGEN_VERSION=$VERSION" \
-	-f "$AQUI/Dockerfile.alpine" -t "$ETIQUETA" "$AQUI"
+	-f "$AQUI/Dockerfile.debian" -t "$ETIQUETA" "$AQUI"
 
 echo "==> Exportando el sistema de archivos"
 "$MOTOR" create --platform "$PLATAFORMA" --name "construct-export-$$" "$ETIQUETA" /bin/true >/dev/null
 "$MOTOR" export -o "$TRABAJO/rootfs.tar" "construct-export-$$"
 
 # El kernel y el initramfs se pasan a QEMU con -kernel/-initrd: sin cargador de arranque.
-tar -xf "$TRABAJO/rootfs.tar" -C "$TRABAJO" boot/vmlinuz-virt boot/initramfs-virt
-install -m 0644 "$TRABAJO/boot/vmlinuz-virt" "$DESTINO/vmlinuz"
-install -m 0644 "$TRABAJO/boot/initramfs-virt" "$DESTINO/initramfs"
+tar -xf "$TRABAJO/rootfs.tar" -C "$TRABAJO" boot/construct-vmlinuz boot/construct-initrd
+install -m 0644 "$TRABAJO/boot/construct-vmlinuz" "$DESTINO/vmlinuz"
+install -m 0644 "$TRABAJO/boot/construct-initrd" "$DESTINO/initramfs"
 
 echo "==> Creando rootfs.qcow2 ($TAMANO, ext4)"
 # Dentro del contenedor se es root (del namespace): el tar se extrae con sus dueños reales a una

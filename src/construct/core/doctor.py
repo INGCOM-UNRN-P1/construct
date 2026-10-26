@@ -99,7 +99,7 @@ def _aceleracion(entorno: Entorno) -> tuple[Chequeo, Arquitectura | None]:
 
 def _imagen(entorno: Entorno, arq: Arquitectura) -> Chequeo:
     nombre = f"imagen del Guest ({arq.value})"
-    proposito = "sistema Alpine con el perfil estudiante"
+    proposito = "sistema Debian con el perfil estudiante"
     try:
         imagen = imagenes.instalada(entorno.directorios.imagenes, arq)
     except imagenes.ErrorDeImagen as error:

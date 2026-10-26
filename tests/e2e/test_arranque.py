@@ -83,7 +83,7 @@ def vm(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Conexion, dic
         "-nodefaults", "-no-user-config", "-display", "none", "-nic", "none",
         "-serial", f"file:{registro}",
         "-kernel", str(carpeta / "vmlinuz"), "-initrd", str(carpeta / "initramfs"),
-        "-append", f"root=/dev/vda rootfstype=ext4 modules=virtio_blk,ext4 console={CONSOLA[elegida.arquitectura_guest]}",
+        "-append", f"root=/dev/vda rootfstype=ext4 rw console={CONSOLA[elegida.arquitectura_guest]}",
         "-drive", f"file={carpeta / 'rootfs.qcow2'},if=virtio,format=qcow2,snapshot=on",
         "-device", "virtio-serial-pci",
         "-chardev", f"socket,id=ctl,host=127.0.0.1,port={puerto}",
@@ -167,8 +167,15 @@ def test_mother_doctor_del_guest(vm: tuple[Conexion, dict[str, Any], float]) -> 
     assert '"schema_version"' in salida
 
 
-@pytest.mark.xfail(strict=True, reason="el gcc de Alpine (musl) no trae libasan ni libubsan: tetsuo y el paso "
-                                       "AddressSanitizer de ripley no funcionan (decisión pendiente sobre la base)")
+def test_preload_de_telemetria(vm: tuple[Conexion, dict[str, Any], float]) -> None:
+    conexion, _, _ = vm
+    script = ("printf '#include <stdlib.h>\\nint main(void) { return malloc(8) == 0; }\\n' > f.c && gcc -g f.c -o f && "
+              "CONSTRUCT_INFORME=/tmp/i.json LD_PRELOAD=/usr/local/lib/libconstruct_preload.so ./f && cat /tmp/i.json")
+    salida, errores, fin = conexion.ejecutar(6, ["sh", "-c", script])
+    assert fin["codigo"] == 0, errores
+    assert '"bloques":1' in salida
+
+
 def test_sanitizers(vm: tuple[Conexion, dict[str, Any], float]) -> None:
     conexion, _, _ = vm
     script = ("printf 'int main(void) { return 0; }' > s.c && "

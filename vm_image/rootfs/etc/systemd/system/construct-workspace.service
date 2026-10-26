@@ -1,0 +1,13 @@
+[Unit]
+Description=Disco de trabajo de construct en /workspace
+DefaultDependencies=no
+After=local-fs.target
+Before=construct-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/construct-workspace
+
+[Install]
+WantedBy=multi-user.target

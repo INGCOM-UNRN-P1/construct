@@ -13,3 +13,6 @@ htmlcov/
 .construct/
 # Imágenes de VM generadas localmente con vm_image/build_vm.sh.
 *.qcow2
+# Binarios del agente compilados a mano con make en vm_image/guest_agent.
+vm_image/guest_agent/construct_daemon
+vm_image/guest_agent/libconstruct_preload.so
