@@ -53,6 +53,14 @@ class ResultadoSync:
 
 
 @dataclass(frozen=True)
+class VersionesEnConflicto:
+    ruta: str
+    base: str | None
+    host: str | None
+    vm: str | None
+
+
+@dataclass(frozen=True)
 class EstadoSync:
     cambios_host: list[str]
     cambios_vm: bool
@@ -158,11 +166,37 @@ class RepoHost:
         assert head is not None
         return head
 
+    def en_conflicto(self) -> list[str]:
+        """Archivos de la fusión pendiente que todavía tienen marcas de conflicto."""
+        if not self.fusion_pendiente():
+            return []
+        en_conflicto = self.correr("diff", "--name-only", "--diff-filter=U").stdout.split()
+        return [r for r in en_conflicto if (self.proyecto / r).is_file()
+                and MARCA_CONFLICTO.search((self.proyecto / r).read_bytes())]
+
+    def versiones(self, ruta: str) -> VersionesEnConflicto:
+        """Base común, versión del Host y de la VM de un archivo en conflicto (None si no existe en esa)."""
+        def etapa(numero: int) -> str | None:
+            salida = self.correr("show", f":{numero}:{ruta}", aceptar=(0, 128))
+            return salida.stdout if salida.returncode == 0 else None
+
+        return VersionesEnConflicto(ruta, etapa(1), etapa(2), etapa(3))
+
+    def elegir(self, ruta: str, eleccion: str) -> None:
+        """Resuelve un conflicto quedándose con la versión del Host (`host`) o la de la VM (`vm`)."""
+        versiones = self.versiones(ruta)
+        texto = versiones.host if eleccion == "host" else versiones.vm if eleccion == "vm" else None
+        if eleccion not in ("host", "vm"):
+            raise ValueError(f"elección desconocida: {eleccion} (host o vm)")
+        destino = self.proyecto / ruta
+        if texto is None:
+            destino.unlink(missing_ok=True)  # en esa versión el archivo se había borrado
+        else:
+            destino.write_text(texto, encoding="utf-8", newline="\n")
+
     def terminar_fusion(self) -> None:
         """Cierra una fusión con conflictos si ya no quedan marcas en los archivos."""
-        en_conflicto = self.correr("diff", "--name-only", "--diff-filter=U").stdout.split()
-        pendientes = [r for r in en_conflicto if (self.proyecto / r).is_file()
-                      and MARCA_CONFLICTO.search((self.proyecto / r).read_bytes())]
+        pendientes = self.en_conflicto()
         if pendientes:
             raise ErrorDeSync("todavía hay conflictos sin resolver (marcas <<<<<<< y >>>>>>>) en:\n  - "
                               + "\n  - ".join(pendientes)
@@ -302,6 +336,17 @@ class SyncManager:
         resultado.subidos = await self.subir()
         resultado.artefactos = await self.bajar_artefactos()
         return resultado
+
+    # Resolución de conflictos (sync_conflict_modal): todo en el Host, la próxima sync la cierra.
+
+    def conflictos(self) -> list[str]:
+        return self.repo.en_conflicto()
+
+    def versiones(self, ruta: str) -> VersionesEnConflicto:
+        return self.repo.versiones(ruta)
+
+    def elegir(self, ruta: str, eleccion: str) -> None:
+        self.repo.elegir(ruta, eleccion)
 
     async def estado(self) -> EstadoSync:
         self.repo.inicializar()

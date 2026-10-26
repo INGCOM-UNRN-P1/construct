@@ -258,6 +258,31 @@ def test_conflicto_de_tres_vias(agente_compilado: Path, tmp_path: Path) -> None:
     correr(prueba)
 
 
+def test_elegir_version_en_un_conflicto(agente_compilado: Path, tmp_path: Path) -> None:
+    async def prueba() -> None:
+        async with sincronizador(agente_compilado, tmp_path) as (gestor, proyecto, vm):
+            (proyecto / "a.c").write_text("a\n")
+            (proyecto / "b.c").write_text("b\n")
+            await gestor.subir()
+            (proyecto / "a.c").write_text("a del Host\n")
+            (proyecto / "b.c").write_text("b del Host\n")
+            (vm / "a.c").write_text("a de la VM\n")
+            (vm / "b.c").write_text("b de la VM\n")
+            assert (await gestor.sincronizar()).conflictos == ["a.c", "b.c"]
+            assert gestor.conflictos() == ["a.c", "b.c"]
+            versiones = gestor.versiones("a.c")
+            assert (versiones.base, versiones.host, versiones.vm) == ("a\n", "a del Host\n", "a de la VM\n")
+            gestor.elegir("a.c", "vm")
+            gestor.elegir("b.c", "host")
+            assert gestor.conflictos() == []
+            final = await gestor.sincronizar()
+            assert final.subidos and not final.conflictos
+            assert (vm / "a.c").read_text() == "a de la VM\n" and (vm / "b.c").read_text() == "b del Host\n"
+            assert gestor.conflictos() == []
+
+    correr(prueba)
+
+
 def test_cambios_no_conflictivos_se_fusionan(agente_compilado: Path, tmp_path: Path) -> None:
     async def prueba() -> None:
         async with sincronizador(agente_compilado, tmp_path) as (gestor, proyecto, vm):
