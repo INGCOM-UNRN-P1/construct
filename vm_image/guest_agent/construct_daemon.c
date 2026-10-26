@@ -54,7 +54,7 @@
 enum tipo {
     HOLA = 0x01, BIENVENIDA = 0x02, ERROR = 0x03, LATIDO = 0x04, LATIDO_OK = 0x05,
     EJECUTAR = 0x10, INICIADO = 0x11, ENTRADA = 0x12, SALIDA = 0x13, ERRORES = 0x14,
-    TERMINADO = 0x15, SENAL = 0x16, TAMANO = 0x17,
+    TERMINADO = 0x15, SENAL = 0x16, TAMANO = 0x17, TELEMETRIA = 0x18,
     ESCRIBIR = 0x20, DATOS = 0x21, FIN = 0x22, HECHO = 0x23, LEER = 0x24,
     APAGAR = 0x30,
 };
@@ -88,6 +88,9 @@ typedef struct {
     int cerrar_entrada;
     int terminado;
     int estado;
+    int telemetria_ms; /* 0: sin muestreo de /proc (RF-06) */
+    double proxima_muestra;
+    double inicio;
 } proceso;
 
 typedef struct {
@@ -520,6 +523,10 @@ static void ejecutar(uint32_t id, const json_doc *doc) {
     p->id = id;
     p->pid = pid;
     p->pty = con_pty;
+    p->inicio = ahora();
+    long cada = json_entero(doc, raiz, "telemetria_ms", 0);
+    p->telemetria_ms = cada <= 0 ? 0 : cada < 50 ? 50 : cada > 5000 ? 5000 : (int)cada;
+    p->proxima_muestra = p->inicio;
     if (con_pty) {
         p->fd_entrada = p->fd_salida = maestro;
         p->fd_errores = -1;
@@ -556,6 +563,113 @@ liberar:
     for (int i = 0; i < n_entorno; i++) {
         free(entorno[i]);
     }
+}
+
+/* --- Telemetría (RF-06): muestras de /proc/<pid> mientras el proceso corre --------------------- */
+
+static long leer_numero_de(const char *ruta, const char *clave) {
+    FILE *f = fopen(ruta, "r");
+    char linea[256];
+    long valor = -1;
+    size_t largo = strlen(clave);
+    if (f == NULL) {
+        return -1;
+    }
+    while (fgets(linea, sizeof linea, f) != NULL) {
+        if (strncmp(linea, clave, largo) == 0) {
+            valor = atol(linea + largo);
+            break;
+        }
+    }
+    fclose(f);
+    return valor;
+}
+
+static int contar_entradas(const char *ruta) {
+    DIR *dir = opendir(ruta);
+    struct dirent *e;
+    int n = 0;
+    if (dir == NULL) {
+        return -1;
+    }
+    while ((e = readdir(dir)) != NULL) {
+        if (e->d_name[0] != '.') {
+            n++;
+        }
+    }
+    closedir(dir);
+    return n;
+}
+
+/* Hilos dormidos en un futex (candidatos a deadlock, /proc/<pid>/task/<tid>/wchan). */
+static int hilos_en_futex(pid_t pid) {
+    char ruta[96];
+    snprintf(ruta, sizeof ruta, "/proc/%d/task", (int)pid);
+    DIR *dir = opendir(ruta);
+    struct dirent *e;
+    int n = 0;
+    if (dir == NULL) {
+        return 0;
+    }
+    while ((e = readdir(dir)) != NULL) {
+        char wchan[128] = "", archivo[512];
+        if (e->d_name[0] == '.') {
+            continue;
+        }
+        snprintf(archivo, sizeof archivo, "%s/%s/wchan", ruta, e->d_name);
+        FILE *f = fopen(archivo, "r");
+        if (f != NULL) {
+            if (fgets(wchan, sizeof wchan, f) == NULL) {
+                wchan[0] = '\0';
+            }
+            fclose(f);
+        }
+        if (strstr(wchan, "futex") != NULL) {
+            n++;
+        }
+    }
+    closedir(dir);
+    return n;
+}
+
+static void muestrear(proceso *p) {
+    char ruta[96], stat[1024];
+    snprintf(ruta, sizeof ruta, "/proc/%d/stat", (int)p->pid);
+    FILE *f = fopen(ruta, "r");
+    if (f == NULL) {
+        return;
+    }
+    size_t n = fread(stat, 1, sizeof stat - 1, f);
+    fclose(f);
+    stat[n] = '\0';
+    char *resto = strrchr(stat, ')'); /* el nombre del comando puede tener espacios */
+    if (resto == NULL) {
+        return;
+    }
+    char estado = ' ';
+    unsigned long utime = 0, stime = 0;
+    long hilos = 0;
+    /* campos 3 (estado) … 14 (utime), 15 (stime) … 20 (num_threads) */
+    if (sscanf(resto + 2, "%c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu %*d %*d %*d %*d %ld",
+               &estado, &utime, &stime, &hilos) != 4) {
+        return;
+    }
+    long tic = sysconf(_SC_CLK_TCK);
+    snprintf(ruta, sizeof ruta, "/proc/%d/status", (int)p->pid);
+    long rss_kb = leer_numero_de(ruta, "VmRSS:");
+    snprintf(ruta, sizeof ruta, "/proc/%d/io", (int)p->pid);
+    long lectura = leer_numero_de(ruta, "rchar:");
+    long escritura = leer_numero_de(ruta, "wchar:");
+    snprintf(ruta, sizeof ruta, "/proc/%d/fd", (int)p->pid);
+    int fds = contar_entradas(ruta);
+
+    buffer b = {0};
+    buf_printf(&b, "{\"t_ms\":%ld,\"estado\":\"%c\",\"cpu_ms\":%lu,\"rss_kb\":%ld,\"hilos\":%ld,",
+               (long)((ahora() - p->inicio) * 1000), estado, (utime + stime) * 1000 / (unsigned long)(tic > 0 ? tic : 100),
+               rss_kb, hilos);
+    buf_printf(&b, "\"hilos_en_futex\":%d,\"fds\":%d,\"lectura\":%ld,\"escritura\":%ld}",
+               hilos_en_futex(p->pid), fds, lectura, escritura);
+    enviar_buffer(TELEMETRIA, p->id, &b);
 }
 
 static void vaciar_entrada(proceso *p) {
@@ -1060,7 +1174,22 @@ static int sesion(void) {
                 fds[n++] = (struct pollfd){p->fd_entrada, POLLOUT, 0};
             }
         }
-        int listos = poll(fds, (nfds_t)n, 1000);
+        int espera_ms = 1000;
+        for (int i = 0; i < MAX_PROCESOS; i++) {
+            proceso *p = &procesos[i];
+            if (p->usado && p->telemetria_ms && !p->terminado) {
+                int falta = (int)((p->proxima_muestra - ahora()) * 1000);
+                espera_ms = falta < 0 ? 0 : falta < espera_ms ? falta : espera_ms;
+            }
+        }
+        int listos = poll(fds, (nfds_t)n, espera_ms);
+        for (int i = 0; i < MAX_PROCESOS; i++) {
+            proceso *p = &procesos[i];
+            if (p->usado && p->telemetria_ms && !p->terminado && ahora() >= p->proxima_muestra) {
+                muestrear(p);
+                p->proxima_muestra = ahora() + p->telemetria_ms / 1000.0;
+            }
+        }
         if (listos < 0 && errno != EINTR) {
             registrar("poll: %s", strerror(errno));
             break;

@@ -31,6 +31,7 @@ class Tipo(IntEnum):
     TERMINADO = 0x15
     SENAL = 0x16
     TAMANO = 0x17
+    TELEMETRIA = 0x18
     ESCRIBIR = 0x20
     DATOS = 0x21
     FIN = 0x22

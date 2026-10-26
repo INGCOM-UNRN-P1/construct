@@ -16,7 +16,7 @@ import threading
 from typing import Any, BinaryIO
 
 from construct.core.channel import ProcesoRemoto
-from construct.core.protocolo import Tipo
+from construct.core.protocolo import Marco, Tipo
 
 
 def _leer_entrada(loop: asyncio.AbstractEventLoop, cola: asyncio.Queue[bytes], entrada: BinaryIO) -> None:
@@ -38,10 +38,12 @@ def _leer_entrada(loop: asyncio.AbstractEventLoop, cola: asyncio.Queue[bytes], e
 
 async def conectar_terminal(proceso: ProcesoRemoto, *, entrada: BinaryIO | None = None,
                             salida: BinaryIO | None = None, errores: BinaryIO | None = None,
-                            reenviar_ctrl_c: bool = True, registro_entrada: bytearray | None = None) -> int:
+                            reenviar_ctrl_c: bool = True, registro_entrada: bytearray | None = None,
+                            otros: list[Marco] | None = None) -> int:
     """Bombea la terminal del Host hacia el proceso remoto hasta que termina; devuelve su código.
 
-    `registro_entrada` junta lo que se le mandó (para repetirlo, por ejemplo, en el post-mortem de hal).
+    `registro_entrada` junta lo que se le mandó (para repetirlo, por ejemplo, en el post-mortem de hal) y
+    `otros`, los marcos que no son de entrada o salida (la telemetría).
     """
     entrada = entrada if entrada is not None else sys.stdin.buffer
     salida = salida if salida is not None else sys.stdout.buffer
@@ -77,6 +79,8 @@ async def conectar_terminal(proceso: ProcesoRemoto, *, entrada: BinaryIO | None 
             if destino is not None:
                 destino.write(marco.datos)
                 destino.flush()
+            elif otros is not None:
+                otros.append(marco)
 
     if reenviar_ctrl_c and threading.current_thread() is threading.main_thread():
         anterior = signal.signal(signal.SIGINT, al_ctrl_c)

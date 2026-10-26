@@ -40,7 +40,7 @@ encuentra por nombre en `/sys/class/virtio-ports/*/name`.
 | `0x03` | `ERROR` | ambos | `{mensaje}`; con el `id` del pedido que falló |
 | `0x04` | `LATIDO` | Host → Guest | vacío |
 | `0x05` | `LATIDO_OK` | Guest → Host | vacío |
-| `0x10` | `EJECUTAR` | Host → Guest | `{argv, cwd?, env?, pty?, filas?, columnas?, root?}` |
+| `0x10` | `EJECUTAR` | Host → Guest | `{argv, cwd?, env?, pty?, filas?, columnas?, root?, telemetria_ms?}` |
 | `0x11` | `INICIADO` | Guest → Host | `{pid}` |
 | `0x12` | `ENTRADA` | Host → Guest | bytes para la entrada estándar; vacío = fin de la entrada |
 | `0x13` | `SALIDA` | Guest → Host | bytes de la salida estándar (o de la terminal, con `pty`) |
@@ -48,6 +48,7 @@ encuentra por nombre en `/sys/class/virtio-ports/*/name`.
 | `0x15` | `TERMINADO` | Guest → Host | `{codigo, senal}`: `senal` es el nombre (`"SEGV"`) o `null` |
 | `0x16` | `SENAL` | Host → Guest | `{senal}`: `INT`, `TERM`, `KILL`, `QUIT`, `HUP`, `USR1`, `USR2`, `STOP`, `CONT` |
 | `0x17` | `TAMANO` | Host → Guest | `{filas, columnas}` de la terminal (sólo con `pty`) |
+| `0x18` | `TELEMETRIA` | Guest → Host | `{t_ms, estado, cpu_ms, rss_kb, hilos, hilos_en_futex, fds, lectura, escritura}` (RF-06) |
 | `0x20` | `ESCRIBIR` | Host → Guest | `{ruta, modo?, root?}`: abre una transferencia al Guest |
 | `0x21` | `DATOS` | ambos | bytes de una transferencia |
 | `0x22` | `FIN` | ambos | cierra una transferencia: Host → Guest vacío; Guest → Host `{bytes}` |
@@ -63,6 +64,9 @@ encuentra por nombre en `/sys/class/virtio-ports/*/name`.
 * Sin `root: true`, el proceso corre como el usuario `estudiante`.
 * Con `pty: true` el proceso tiene una terminal propia (`filas` × `columnas`, por defecto 24 × 80);
   `SALIDA` trae lo que muestra la terminal y no hay `ERRORES`.
+* Con `telemetria_ms` (50 a 5000), el agente manda `TELEMETRIA` con una muestra de `/proc/<pid>` cada
+  ese tiempo mientras el proceso corre: CPU acumulada (`utime + stime`), RSS, hilos y cuántos duermen en
+  un futex (`/proc/<pid>/task/*/wchan`), descriptores abiertos y bytes leídos y escritos (`rchar`, `wchar`).
 * `TERMINADO` llega después de la última `SALIDA`/`ERRORES` del proceso. Si el programa no existe,
   llega un `ERROR` y `TERMINADO {codigo: 127}`.
 

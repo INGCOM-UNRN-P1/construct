@@ -8,6 +8,7 @@ baja los artefactos. Acá vive sólo la presentación en la terminal; la lógica
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -19,10 +20,12 @@ from rich.console import Console
 from rich.markup import escape
 
 from construct.consola import conectar_terminal
+from construct.core import telemetry as telemetria
 from construct.core import tool_bridge as puente
-from construct.core.channel import Canal, Resultado
+from construct.core.channel import Canal, ErrorRemoto, Resultado
 from construct.core.cliente import asegurar_sesion, conectar_sesion
 from construct.core.config import Config, cargar_del_directorio
+from construct.core.protocolo import Marco, Tipo
 from construct.core.sync_manager import ErrorDeSync, SyncManager
 from construct.platform import binarios, host
 from construct.platform.paths import directorios
@@ -186,6 +189,22 @@ async def _post_mortem(proyecto: Proyecto, binario: str, argumentos: Sequence[st
             consola.print(f"[{color}]{escape(str(datos[clave]))}[/{color}]")
 
 
+async def _informe_de_ejecucion(proyecto: Proyecto, ruta: str) -> list[dict[str, Any]]:
+    """Lo que dejó libconstruct_preload (si el programa terminó normalmente), ubicado con addr2line."""
+    try:
+        datos = json.loads(await proyecto.canal.leer_archivo(ruta))
+    except (ErrorRemoto, ValueError):
+        return []  # terminó con una señal o sin el preload: no hay informe
+    await proyecto.correr(["rm", "-f", ruta])
+    ubicaciones: dict[tuple[str, str], telemetria.Ubicacion] = {}
+    for modulo, offsets in telemetria.offsets_por_modulo(datos).items():
+        ruta_modulo = modulo if modulo.startswith("/") else f"{proyecto.vm}/{modulo.removeprefix('./')}"
+        salida = await proyecto.correr(telemetria.argv_addr2line(ruta_modulo, offsets))
+        for offset, lugar in telemetria.parsear_addr2line(salida.texto(), offsets).items():
+            ubicaciones[(modulo, offset)] = lugar
+    return telemetria.analizar_informe(datos, ubicaciones, lambda r: puente.ruta_en_host(r, proyecto.vm))
+
+
 async def run(binario: str | None, argumentos: Sequence[str], *, tetsuo: bool, aislado: bool) -> int:
     async with abrir_proyecto() as proyecto:
         fuentes = puente.fuentes_del_proyecto(proyecto.carpeta)
@@ -233,12 +252,23 @@ async def run(binario: str | None, argumentos: Sequence[str], *, tetsuo: bool, a
                 consola.print(f"[bold red]El programa terminó con código {codigo}[/bold red] [dim](nostromo: {escape(tipo)})[/dim]")
             return codigo
 
-        proceso = await proyecto.canal.ejecutar([f"./{binario}", *argumentos], cwd=proyecto.vm)
+        informe = f"/tmp/construct-informe-{os.getpid()}-{id(proyecto)}.json"
+        proceso = await proyecto.canal.ejecutar(
+            [f"./{binario}", *argumentos], cwd=proyecto.vm, telemetria_ms=100,
+            env={"LD_PRELOAD": telemetria.PRELOAD, "CONSTRUCT_INFORME": informe})
         enviada = bytearray()
-        codigo = await conectar_terminal(proceso, registro_entrada=enviada)
+        marcos: list[Marco] = []
+        codigo = await conectar_terminal(proceso, registro_entrada=enviada, otros=marcos)
         if proceso.error:
             consola.print(f"[bold red]Error:[/bold red] {escape(proceso.error)}")
-        elif puente.es_crash(proceso.senal):
+            return codigo
+        hallazgos = telemetria.analizar_muestras(
+            [telemetria.Muestra.desde(m.json()) for m in marcos if m.tipo is Tipo.TELEMETRIA])
+        hallazgos += await _informe_de_ejecucion(proyecto, informe)
+        if hallazgos:
+            consola.print("\n[bold]Telemetría de la ejecución[/bold]")
+            mostrar_hallazgos(hallazgos)
+        if puente.es_crash(proceso.senal):
             await _post_mortem(proyecto, binario, argumentos, bytes(enviada))
         return codigo
 
