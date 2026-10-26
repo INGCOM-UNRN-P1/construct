@@ -1,0 +1,4 @@
+# El disco del sistema es /dev/vda (overlay qcow2 sobre la imagen base); /workspace lo monta
+# el servicio construct-workspace.
+/dev/vda	/	ext4	rw,noatime	0 1
+tmpfs	/tmp	tmpfs	nosuid,nodev,mode=1777	0 0

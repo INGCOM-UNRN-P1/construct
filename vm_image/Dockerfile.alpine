@@ -1,0 +1,87 @@
+# Guest de construct: Alpine + perfil estudiante + librerías C + agente (SPEC §4, PLAN Fase 2).
+#
+# Multiarquitectura: `--platform linux/amd64` (Guest x86_64) o `linux/arm64` (Guest aarch64, para
+# hosts ARM: decisión D1). build_vm.sh convierte el contenedor en kernel + initramfs + rootfs.qcow2.
+ARG ALPINE=3.22
+
+# --- Agente, enlazado estático con musl --------------------------------------------------------
+FROM docker.io/library/alpine:${ALPINE} AS agente
+RUN apk add --no-cache build-base linux-headers
+COPY guest_agent/ /src/
+RUN make -C /src SALIDA=/construct_daemon \
+        CFLAGS="-std=c11 -O2 -Wall -Wextra -Werror -pedantic -D_FORTIFY_SOURCE=2" LDFLAGS="-static" \
+    && strip /construct_daemon
+
+# --- jonesy: binario del release (x86_64) o compilado desde el tag (aarch64) --------------------
+FROM docker.io/library/alpine:${ALPINE} AS jonesy
+ARG TARGETARCH
+ARG JONESY_VERSION=0.1.0
+ARG JONESY_SHA256_X86_64=ac679270f59c9b0d2368d5cb5414dff3d5ac78f631e249faa645a3f4f85b1fcc
+RUN apk add --no-cache curl git cargo
+RUN set -eu; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        nombre="jonesy-${JONESY_VERSION}-linux-x86_64-musl"; \
+        curl -fsSL -o /tmp/j.tar.gz \
+            "https://github.com/INGCOM-UNRN-P1/jonesy/releases/download/v${JONESY_VERSION}/${nombre}.tar.gz"; \
+        echo "${JONESY_SHA256_X86_64}  /tmp/j.tar.gz" | sha256sum -c -; \
+        tar -xzf /tmp/j.tar.gz -C /tmp; \
+        install -m 0755 "/tmp/${nombre}/jonesy" /jonesy; \
+    else \
+        git -c advice.detachedHead=false clone -q --depth 1 --branch "v${JONESY_VERSION}" \
+            https://github.com/INGCOM-UNRN-P1/jonesy /tmp/jonesy; \
+        cargo build --release --locked --manifest-path /tmp/jonesy/Cargo.toml; \
+        install -m 0755 /tmp/jonesy/target/release/jonesy /jonesy; \
+    fi
+
+# --- Sistema -----------------------------------------------------------------------------------
+FROM docker.io/library/alpine:${ALPINE}
+ARG TARGETARCH
+ARG MOTHER_REF=v0.2.0
+ARG TREADSTONE_REF=03055dd4f767a8c1bcca19539f3337f825aa44ba
+ARG BITMAPS_REF=9cce758d8666469f103a2586bf6f9f0008a1ce6f
+ARG SONIDO_REF=2999852077de6d7060269ba71d117c2afd5a414d
+
+# Base, kernel para VM y herramientas que necesita el perfil (ecosistema.toml: gcc, gdb, valgrind,
+# bwrap, make); python3 y uv para las herramientas del ecosistema.
+RUN apk add --no-cache \
+        alpine-base openrc busybox-openrc linux-virt mkinitfs e2fsprogs util-linux-misc \
+        build-base gdb valgrind bubblewrap make git bash python3 uv ca-certificates
+
+# initramfs mínimo: lo justo para montar /dev/vda (ext4 sobre VirtIO).
+RUN printf 'features="base ext4 virtio"\n' > /etc/mkinitfs/mkinitfs.conf \
+    && mkinitfs -o /boot/initramfs-virt "$(ls /lib/modules)"
+
+RUN adduser -D -s /bin/bash -u 1000 estudiante \
+    && mkdir -p /workspace && chown estudiante:estudiante /workspace
+
+# Perfil estudiante con mother (sólo desde git, nunca de PyPI). Las herramientas quedan en /opt/p1
+# y sus comandos en /usr/local/bin, para todos los usuarios.
+ENV UV_TOOL_DIR=/opt/p1/herramientas UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_PYTHON_PREFERENCE=only-system UV_NO_CACHE=1
+RUN uv tool install "git+https://github.com/INGCOM-UNRN-P1/mother@${MOTHER_REF}" \
+    && mother instalar --perfil estudiante \
+    && (mother doctor --perfil estudiante || echo "AVISO: mother doctor informó faltantes (ver arriba)")
+
+COPY instalar_librerias.sh /tmp/instalar_librerias.sh
+RUN sh /tmp/instalar_librerias.sh "$TREADSTONE_REF" "$BITMAPS_REF" "$SONIDO_REF" && rm /tmp/instalar_librerias.sh
+
+COPY --from=jonesy /jonesy /usr/local/bin/jonesy
+COPY --from=agente /construct_daemon /usr/local/sbin/construct_daemon
+COPY rootfs/ /
+
+# Servicios de OpenRC, cgroups v2 (RF-04, RF-06) y consola serie de la arquitectura.
+RUN set -eu; \
+    chmod 0755 /etc/init.d/construct-agent /etc/init.d/construct-workspace; \
+    for s in devfs dmesg mdev hwdrivers; do rc-update add "$s" sysinit; done; \
+    for s in modules sysctl hostname bootmisc cgroups; do rc-update add "$s" boot; done; \
+    for s in construct-workspace construct-agent; do rc-update add "$s" default; done; \
+    for s in mount-ro killprocs savecache; do rc-update add "$s" shutdown; done; \
+    sed -i 's/^#\?rc_cgroup_mode=.*/rc_cgroup_mode="unified"/' /etc/rc.conf; \
+    if [ "$TARGETARCH" = "arm64" ]; then consola=ttyAMA0; else consola=ttyS0; fi; \
+    sed -i "s/CONSOLA/$consola/g" /etc/inittab; \
+    echo construct > /etc/hostname; \
+    passwd -l root >/dev/null
+
+# Versión de la imagen (la escribe build_vm.sh con --build-arg).
+ARG IMAGEN_VERSION=dev
+RUN printf 'version=%s\nprotocolo=1\n' "$IMAGEN_VERSION" > /etc/construct-imagen

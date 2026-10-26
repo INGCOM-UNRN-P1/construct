@@ -1,0 +1,38 @@
+#!/sbin/openrc-run
+# Disco de trabajo del alumno (workspace.qcow2, segundo disco VirtIO): lo formatea la primera vez
+# y lo monta en /workspace. Sin segundo disco, /workspace queda en el disco del sistema.
+
+description="Disco de trabajo de construct en /workspace"
+
+DISCO="/dev/vdb"
+ETIQUETA="workspace"
+
+depend() {
+	need localmount
+	before construct-agent
+}
+
+start() {
+	mkdir -p /workspace
+	if [ ! -b "$DISCO" ]; then
+		ewarn "No hay disco de trabajo ($DISCO): /workspace queda en el disco del sistema"
+	else
+		if ! blkid "$DISCO" >/dev/null 2>&1; then
+			ebegin "Formateando el disco de trabajo"
+			mkfs.ext4 -q -L "$ETIQUETA" "$DISCO"
+			eend $? || return 1
+		fi
+		ebegin "Montando el disco de trabajo en /workspace"
+		mount -o noatime "$DISCO" /workspace
+		eend $? || return 1
+	fi
+	chown estudiante:estudiante /workspace
+}
+
+stop() {
+	if mountpoint -q /workspace; then
+		ebegin "Desmontando /workspace"
+		umount /workspace
+		eend $?
+	fi
+}

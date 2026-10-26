@@ -1,0 +1,12 @@
+# /etc/inittab del Guest de construct (busybox init + OpenRC).
+
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::wait:/sbin/openrc default
+
+# Consola serie para diagnóstico (sólo la ve quien corre QEMU). El Dockerfile reemplaza CONSOLA
+# por ttyS0 (x86_64) o ttyAMA0 (aarch64).
+CONSOLA::respawn:/sbin/getty -n -l /bin/sh -L 115200 CONSOLA vt100
+
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown
