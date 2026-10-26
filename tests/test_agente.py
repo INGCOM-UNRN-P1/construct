@@ -22,8 +22,6 @@ import pytest
 
 from construct.core.protocolo import PROTOCOLO, Decodificador, Marco, Tipo, codificar, trocear
 
-FUENTES = Path(__file__).resolve().parent.parent / "vm_image" / "guest_agent"
-
 pytestmark = pytest.mark.skipif(
     not sys.platform.startswith("linux") or shutil.which("make") is None or shutil.which("cc") is None,
     reason="el agente usa APIs de Linux (signalfd, forkpty, setfsuid) y se compila con cc",
@@ -31,10 +29,8 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def binario(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    salida = tmp_path_factory.mktemp("agente") / "construct_daemon"
-    subprocess.run(["make", "-s", "-C", str(FUENTES), f"SALIDA={salida}"], check=True)
-    return salida
+def binario(agente_compilado: Path) -> Path:
+    return agente_compilado
 
 
 class Sesion:

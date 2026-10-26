@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -59,3 +62,17 @@ def construct_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     raiz = tmp_path / "construct-home"
     monkeypatch.setenv("CONSTRUCT_HOME", str(raiz))
     return raiz
+
+
+FUENTES_AGENTE = Path(__file__).resolve().parent.parent / "vm_image" / "guest_agent"
+HAY_AGENTE = sys.platform.startswith("linux") and shutil.which("make") is not None and shutil.which("cc") is not None
+
+
+@pytest.fixture(scope="session")
+def agente_compilado(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """El agente del Guest compilado para el Host (sólo Linux: usa signalfd, forkpty y setfsuid)."""
+    if not HAY_AGENTE:
+        pytest.skip("el agente usa APIs de Linux y se compila con cc")
+    salida = tmp_path_factory.mktemp("agente") / "construct_daemon"
+    subprocess.run(["make", "-s", "-C", str(FUENTES_AGENTE), f"SALIDA={salida}"], check=True)
+    return salida

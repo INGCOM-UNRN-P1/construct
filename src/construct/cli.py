@@ -6,7 +6,10 @@ se agregan a medida que se implementan sus fases del plan.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from collections.abc import Coroutine
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -14,13 +17,17 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TransferSpeedColumn
-from yutani.cli import crear_app
+from yutani.cli import CONTEXTO, TyperConErrores, crear_app
 from yutani.doctor import SCHEMA_VERSION, informe, mostrar
 
 from construct import __version__
+from construct.consola import conectar_terminal
 from construct.core import imagenes
+from construct.core.channel import ErrorDeCanal, ErrorRemoto
+from construct.core.cliente import ErrorDeArranque, asegurar_sesion, conectar_sesion, detener_sesion
 from construct.core.config import ErrorDeConfiguracion, cargar_del_directorio
 from construct.core.doctor import Entorno, chequeos
+from construct.core.sesion import InfoSesion, leer_info
 from construct.core.setup import ResultadoSetup, preparar
 from construct.platform import host
 from construct.platform.paths import directorios
@@ -31,7 +38,24 @@ AYUDA = (
     "máquina virtual Alpine acelerada por hardware, igual en Windows, macOS y Linux."
 )
 
-app = crear_app("construct", __version__, AYUDA, errores_extra=(ErrorDeConfiguracion, imagenes.ErrorDeImagen))
+app = crear_app("construct", __version__, AYUDA, errores_extra=(
+    ErrorDeConfiguracion, imagenes.ErrorDeImagen, ErrorDeArranque, ErrorDeCanal, ErrorRemoto))
+vm_app = TyperConErrores(name="vm", context_settings=dict(CONTEXTO), no_args_is_help=True,
+                         help="Máquina virtual: arrancarla, apagarla, ver su estado o ejecutar algo adentro.")
+app.add_typer(vm_app, name="vm")
+consola_err = Console(stderr=True)
+
+
+def _correr(corrutina: Coroutine[object, object, int]) -> int:
+    try:
+        return asyncio.run(corrutina)
+    except KeyboardInterrupt:
+        return 130
+
+
+def _sesion() -> InfoSesion:
+    return asegurar_sesion(directorios(), Path.cwd(),
+                           aviso=lambda texto: consola_err.print(f"[dim]{texto}[/dim]"))
 
 
 def _entorno() -> Entorno:
@@ -50,6 +74,76 @@ def doctor(
     else:
         mostrar(datos)
     raise typer.Exit(0 if datos["ok"] else 1)
+
+
+def _describir(info: InfoSesion) -> dict[str, object]:
+    return {"pid": info.pid, "qemu_pid": info.qemu_pid, "arquitectura": info.arquitectura,
+            "acelerador": info.acelerador, "imagen": info.imagen, "agente": info.agente,
+            "activa_hace_s": round(time.time() - info.inicio)}
+
+
+@vm_app.command("start")
+def vm_start() -> None:
+    """Arranca la máquina virtual (si no estaba corriendo) y deja la sesión lista."""
+    info = _sesion()
+    consola_err.print(f"[green]✓[/green] VM {info.arquitectura} con {info.acelerador.upper()} "
+                      f"(imagen {info.imagen}, sesión {info.pid}).")
+
+
+@vm_app.command("stop")
+def vm_stop() -> None:
+    """Apaga la máquina virtual de forma ordenada."""
+    info = leer_info(directorios())
+    if info is None:
+        consola_err.print("No hay una máquina virtual corriendo.")
+        raise typer.Exit(0)
+    if not _correr(_detener(info)):
+        consola_err.print("[bold red]La VM no se apagó a tiempo.[/bold red]")
+        raise typer.Exit(1)
+    consola_err.print("[green]✓[/green] Máquina virtual apagada.")
+
+
+async def _detener(info: InfoSesion) -> int:
+    return int(await detener_sesion(info))
+
+
+@vm_app.command("status")
+def vm_status(json_salida: bool = typer.Option(False, "--json", help="Estado en JSON.")) -> None:
+    """Muestra si la máquina virtual está corriendo y con qué acelerador."""
+    info = leer_info(directorios())
+    datos = {"schema_version": SCHEMA_VERSION, "herramienta": "construct", "corriendo": info is not None,
+             "vm": _describir(info) if info else None}
+    if json_salida:
+        typer.echo(json.dumps(datos, ensure_ascii=False, indent=2))
+    elif info is None:
+        consola_err.print("No hay una máquina virtual corriendo (se arranca sola con cualquier comando).")
+    else:
+        d = _describir(info)
+        consola_err.print(f"VM {d['arquitectura']} con {str(d['acelerador']).upper()}, imagen {d['imagen']}, "
+                          f"agente {d['agente']}, activa hace {d['activa_hace_s']} s (sesión {d['pid']}).")
+
+
+@vm_app.command("exec", context_settings={"allow_interspersed_args": False})
+def vm_exec(
+    comando: list[str] = typer.Argument(..., help="Comando y argumentos a ejecutar en la VM."),
+    root: bool = typer.Option(False, "--root", help="Como root en lugar del usuario estudiante."),
+    cwd: str = typer.Option(None, "--cwd", show_default=False, help="Directorio de trabajo en la VM."),
+) -> None:
+    """Ejecuta un comando dentro de la VM conectado a esta terminal (para diagnóstico)."""
+    info = _sesion()
+    raise typer.Exit(_correr(_exec(info, comando, root=root, cwd=cwd)))
+
+
+async def _exec(info: InfoSesion, comando: list[str], *, root: bool = False, cwd: str | None = None) -> int:
+    canal = await conectar_sesion(info)
+    try:
+        proceso = await canal.ejecutar(comando, root=root, cwd=cwd)
+        codigo = await conectar_terminal(proceso)
+        if proceso.error:
+            consola_err.print(f"[bold red]Error:[/bold red] {proceso.error}")
+        return codigo
+    finally:
+        await canal.cerrar()
 
 
 def _setup_json(resultado: ResultadoSetup) -> dict[str, Any]:
