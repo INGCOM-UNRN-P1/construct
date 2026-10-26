@@ -130,3 +130,14 @@ def buscar_git(host: HostInfo, *, sondas: SondasBinarios | None = None) -> Ejecu
 def buscar_gdb(host: HostInfo, *, sondas: SondasBinarios | None = None) -> Ejecutable | None:
     """GDB del Host para el modo desarrollo (PLAN §3.4): primero `gdb-multiarch`."""
     return buscar(host, ["gdb-multiarch", "gdb"], sondas=sondas)
+
+
+def buscar_qemu_img(host: HostInfo, qemu: Ejecutable | None = None, *,
+                    sondas: SondasBinarios | None = None) -> Ejecutable | None:
+    """qemu-img: primero junto al qemu-system encontrado (así viene en Windows y Homebrew), después el PATH."""
+    sufijo = ".exe" if host.sistema is Sistema.WINDOWS else ""
+    junto = None
+    if qemu is not None:
+        carpeta = str(PureWindowsPath(qemu.ruta).parent) if host.sistema is Sistema.WINDOWS else qemu.ruta.rsplit("/", 1)[0]
+        junto = _unir(host, carpeta, "qemu-img" + sufijo)
+    return buscar(host, ["qemu-img"], ruta_configurada=junto, sondas=sondas)

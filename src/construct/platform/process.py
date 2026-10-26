@@ -118,6 +118,33 @@ def lanzar_vinculado(
                             preexec_fn=_pdeathsig if _ES_LINUX else None)  # noqa: PLW1509
 
 
+DETACHED_PROCESS = 0x00000008
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+
+
+def lanzar_desacoplado(argumentos: Sequence[str | os.PathLike[str]], *, registro: Path,
+                       entorno: dict[str, str] | None = None) -> int:
+    """Lanza un proceso que sobrevive a construct (la sesión de VM); devuelve su PID.
+
+    Sin consola ni terminal: la salida va a `registro`. En Windows sale del job de la terminal si
+    se puede, para que cerrar la ventana no lo mate.
+    """
+    registro.parent.mkdir(parents=True, exist_ok=True)
+    with registro.open("ab") as salida:
+        if _ES_WINDOWS:
+            banderas = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+            try:
+                proceso = subprocess.Popen(list(argumentos), stdin=subprocess.DEVNULL, stdout=salida, stderr=salida,
+                                           env=entorno, creationflags=banderas | CREATE_BREAKAWAY_FROM_JOB)
+            except OSError:  # El job de la terminal no permite salir: queda adentro.
+                proceso = subprocess.Popen(list(argumentos), stdin=subprocess.DEVNULL, stdout=salida, stderr=salida,
+                                           env=entorno, creationflags=banderas)
+        else:
+            proceso = subprocess.Popen(list(argumentos), stdin=subprocess.DEVNULL, stdout=salida, stderr=salida,
+                                       env=entorno, start_new_session=True)
+    return proceso.pid
+
+
 def proceso_vivo(pid: int) -> bool:
     """Si existe un proceso con ese PID (para validar un pidfile de una sesión anterior)."""
     if pid <= 0:

@@ -131,6 +131,17 @@ def _qemu(entorno: Entorno, arq: Arquitectura) -> Chequeo:
     return Chequeo(nombre, True, True, f"{encontrado.texto_version} ({encontrado.ruta})", "ejecutar la máquina virtual")
 
 
+def _qemu_img(entorno: Entorno, arq: Arquitectura) -> Chequeo:
+    qemu_sistema = binarios.buscar_qemu(entorno.host, arq, ruta_configurada=entorno.config.vm.qemu or None,
+                                        sondas=entorno.sondas_binarios)
+    encontrado = binarios.buscar_qemu_img(entorno.host, qemu_sistema, sondas=entorno.sondas_binarios)
+    proposito = "crear los discos de la VM"
+    if encontrado is None:
+        return Chequeo("qemu-img", True, False, "no encontrado", proposito,
+                       sugerencia(Componente.QEMU_IMG, entorno.host, arq))
+    return Chequeo("qemu-img", True, True, f"{encontrado.texto_version} ({encontrado.ruta})", proposito)
+
+
 def _git(entorno: Entorno) -> Chequeo:
     encontrado = binarios.buscar_git(entorno.host, sondas=entorno.sondas_binarios)
     minima = binarios.formatear_version(binarios.VERSION_MINIMA_GIT)
@@ -180,6 +191,7 @@ def chequeos(entorno: Entorno, *, dev: bool = False, imagen: bool = True) -> lis
     resultado.append(chequeo_aceleracion)
     if arq is not None:
         resultado.append(_qemu(entorno, arq))
+        resultado.append(_qemu_img(entorno, arq))
         if imagen:
             resultado.append(_imagen(entorno, arq))
     resultado += [_git(entorno), _espacio(entorno), _memoria(entorno.host)]

@@ -11,7 +11,7 @@ from construct.platform.paths import directorios
 from tests.conftest import crear_host, sondas_aceleracion, sondas_binarios
 
 LINUX_COMPLETO = {"/usr/bin/qemu-system-x86_64": "QEMU emulator version 9.2.0",
-                  "/usr/bin/git": "git version 2.45.0"}
+                  "/usr/bin/qemu-img": "qemu-img version 9.2.0", "/usr/bin/git": "git version 2.45.0"}
 
 
 def entorno(host: HostInfo, archivos: dict[str, str] | None = None, *, config: Config | None = None,
@@ -43,7 +43,7 @@ def test_linux_completo_da_ok(tmp_path: Path) -> None:
     resultado = chequeos(entorno(crear_host()))
     datos = informe("construct", "0.1.0", resultado)
     assert datos["ok"], datos
-    assert list(por_nombre(resultado)) == ["sistema", "aceleración", "qemu-system-x86_64",
+    assert list(por_nombre(resultado)) == ["sistema", "aceleración", "qemu-system-x86_64", "qemu-img",
                                            "imagen del Guest (x86_64)", "git", "espacio en disco", "memoria"]
 
 
@@ -83,8 +83,9 @@ def test_apple_silicon_bajo_rosetta(tmp_path: Path) -> None:
     instalar_imagen(tmp_path, Arquitectura.AARCH64)
     host = crear_host(Sistema.MACOS, Arquitectura.AARCH64, emulado=True)
     archivos = {"/opt/homebrew/bin/qemu-system-aarch64": "QEMU emulator version 10.0.0",
-                "/opt/homebrew/bin/git": "git version 2.46.0"}
+                "/opt/homebrew/bin/qemu-img": "qemu-img version 10.0.0", "/opt/homebrew/bin/git": "git version 2.46.0"}
     resultado = por_nombre(chequeos(entorno(host, archivos)))
+    assert resultado["qemu-img"].ok
     assert "qemu-system-aarch64" in resultado and resultado["qemu-system-aarch64"].ok
     arquitectura = resultado["arquitectura"]
     assert not arquitectura.ok and not arquitectura.requerido  # Advertencia, no impide usar construct.

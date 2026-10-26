@@ -13,6 +13,7 @@ from construct.platform.host_info import Arquitectura, HostInfo, Sistema
 
 class Componente(StrEnum):
     QEMU = "qemu"
+    QEMU_IMG = "qemu-img"
     GIT = "git"
     KVM_PERMISOS = "kvm-permisos"
     KVM_AUSENTE = "kvm-ausente"
@@ -38,6 +39,9 @@ _PAQUETE_QEMU = {
     "suse": {Arquitectura.X86_64: "qemu-x86", Arquitectura.AARCH64: "qemu-arm"},
     "alpine": {Arquitectura.X86_64: "qemu-system-x86_64", Arquitectura.AARCH64: "qemu-system-aarch64"},
 }
+
+_PAQUETE_QEMU_IMG = {"debian": "qemu-utils", "fedora": "qemu-img", "arch": "qemu-img", "suse": "qemu-tools",
+                     "alpine": "qemu-img"}
 
 _PAQUETE_GDB = {"debian": "gdb-multiarch", "fedora": "gdb", "arch": "gdb", "suse": "gdb", "alpine": "gdb-multiarch"}
 
@@ -66,6 +70,11 @@ def sugerencia(componente: Componente, host: HostInfo, arquitectura: Arquitectur
             return "Ejecutá `brew install qemu` (Homebrew: https://brew.sh)."
         paquete = _PAQUETE_QEMU.get(_familia(host), {}).get(arq, f"qemu-system-{arq.value}")
         return _instalar_linux(host, paquete, f"qemu-system-{arq.value}")
+
+    if componente is Componente.QEMU_IMG:
+        if sistema is not Sistema.LINUX:
+            return "qemu-img viene con QEMU: " + sugerencia(Componente.QEMU, host, arq)
+        return _instalar_linux(host, _PAQUETE_QEMU_IMG.get(_familia(host), "qemu-img"), "qemu-img")
 
     if componente is Componente.GIT:
         if sistema is Sistema.WINDOWS:

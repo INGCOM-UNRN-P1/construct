@@ -19,6 +19,7 @@ def test_prepara_carpetas_y_baja_la_imagen_de_la_arquitectura_del_host(tmp_path:
     manifiesto = str(publicar(tmp_path / "release"))
     e = entorno(crear_host(Sistema.MACOS, Arquitectura.AARCH64),
                 {"/opt/homebrew/bin/qemu-system-aarch64": "QEMU emulator version 10.0.0",
+                 "/opt/homebrew/bin/qemu-img": "qemu-img version 10.0.0",
                  "/opt/homebrew/bin/git": "git version 2.46.0"})
     resultado = preparar(e, manifiesto=manifiesto)
     assert all(d.is_dir() for d in e.directorios.todos())
