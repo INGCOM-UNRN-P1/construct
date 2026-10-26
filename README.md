@@ -5,8 +5,9 @@ IDE pedagógico y orquestador de máquina virtual del perfil `estudiante` de Pro
 de las herramientas dentro de una VM Debian acelerada por hardware, con la misma experiencia en
 Windows, macOS y Linux.
 
-> **Estado:** en desarrollo (Fases 1 a 4 de [`PLAN.md`](PLAN.md)): la línea de comandos completa
-> y el IDE en la terminal (`construct ui`). Falta el modo `construct jonesy` (Fase 5).
+> **Estado:** en desarrollo (Fases 1 a 5 de [`PLAN.md`](PLAN.md)): la línea de comandos completa,
+> el IDE en la terminal (`construct ui`) y `construct jonesy`. Falta la verificación integral y la
+> distribución (Fase 6).
 
 ## Requisitos
 
@@ -64,6 +65,7 @@ construct run --aislado     # dentro del sandbox de nostromo
 construct test              # F6: suites de treadstone (tests/test_*.c)
 construct sync              # sube, baja con fusión de 3 vías y trae artefactos (.bmp, .wav, …)
 construct sync estado       # también subir, bajar y artefactos
+construct jonesy [archivo]  # jonesy, el IDE de terminal de la cátedra, dentro de la VM
 construct vm start|stop|status
 construct vm exec -- CMD    # un comando dentro de la VM (diagnóstico)
 ```
@@ -71,6 +73,10 @@ construct vm exec -- CMD    # un comando dentro de la VM (diagnóstico)
 `construct run` avisa, además, de lo que vio la telemetría: espera activa, posibles deadlocks,
 archivos sin `fclose` y memoria sin liberar, con su línea. Los artefactos quedan en
 `.construct/artefactos/`.
+
+`construct jonesy` conecta tu terminal directo con jonesy en la VM (con colores, mouse y el tamaño
+de la ventana); al salir, lo que guardaste allá vuelve a tus archivos. En Windows necesita Windows
+Terminal o la consola de Windows 10 1809 en adelante.
 
 ### El IDE: `construct ui`
 

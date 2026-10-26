@@ -269,6 +269,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   3. Windows: `SetConsoleMode` con `ENABLE_VIRTUAL_TERMINAL_INPUT`/`ENABLE_VIRTUAL_TERMINAL_PROCESSING` vía `ctypes`, lectura de entrada en hilo dedicado y detección de resize por sondeo de `shutil.get_terminal_size`.
   4. Restauración garantizada del modo de la terminal ante cualquier salida (incluida la caída de la VM).
 * **Checkpoint:** `jonesy` usable y redimensionable en las terminales de la Fase 4.
+* **Estado (26/10/2026):** implementada. Además de lo pedido, al salir de `jonesy` se traen los cambios hechos en la VM (`sync bajar`, con fusión de 3 vías). Verificada con tests (fakes de `termios` y de la consola de Windows, y una pty contra el agente real) y contra la VM Debian dentro de una pty de Linux: tamaño inicial, redimensionado, edición guardada que vuelve al Host y terminal restaurada al salir. **Falta el checkpoint en las terminales reales** (las seis de la Fase 4), en particular la rama de Windows, que sólo se probó con la consola falsa.
 
 ### Fase 6: Verificación Integral, Distribución y Alta en la Plataforma
 

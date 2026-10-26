@@ -40,6 +40,9 @@ versiones según [SemVer](https://semver.org/lang/es/).
 - **ui**: keymap portable con alternativas, paleta de comandos y `[teclas]` en `project.toml`.
 - **sync**: elegir la versión del Host o de la VM por archivo en un conflicto.
 - **gdb**: depuración y fotos de bishop desde el orquestador.
+- **platform**: modo crudo de la terminal en POSIX (`termios`, SIGWINCH) y Windows (`SetConsoleMode` con VT).
+- **cli**: `construct jonesy`, jonesy en la VM con la terminal del Host en crudo, redimensionable, y la
+  vuelta al Host de lo editado.
 
 ### Cambiado
 
