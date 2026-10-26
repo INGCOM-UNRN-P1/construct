@@ -20,7 +20,7 @@ from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColum
 from yutani.cli import CONTEXTO, TyperConErrores, crear_app
 from yutani.doctor import SCHEMA_VERSION, informe, mostrar
 
-from construct import __version__
+from construct import __version__, comandos
 from construct.consola import conectar_terminal
 from construct.core import imagenes
 from construct.core.channel import ErrorDeCanal, ErrorRemoto
@@ -39,7 +39,7 @@ AYUDA = (
 )
 
 app = crear_app("construct", __version__, AYUDA, errores_extra=(
-    ErrorDeConfiguracion, imagenes.ErrorDeImagen, ErrorDeArranque, ErrorDeCanal, ErrorRemoto))
+    ErrorDeConfiguracion, imagenes.ErrorDeImagen, ErrorDeArranque, ErrorDeCanal, ErrorRemoto, OSError))
 vm_app = TyperConErrores(name="vm", context_settings=dict(CONTEXTO), no_args_is_help=True,
                          help="Máquina virtual: arrancarla, apagarla, ver su estado o ejecutar algo adentro.")
 app.add_typer(vm_app, name="vm")
@@ -144,6 +144,61 @@ async def _exec(info: InfoSesion, comando: list[str], *, root: bool = False, cwd
         return codigo
     finally:
         await canal.cerrar()
+
+
+@app.command("build")
+def build(
+    fuentes: list[str] = typer.Argument(None, help="Archivos .c (por defecto, todos los del proyecto salvo test_*.c)."),
+    salida: str = typer.Option("programa", "--output", "-o", help="Nombre del ejecutable."),
+    json_salida: bool = typer.Option(False, "--json", help="Resultado y hallazgos en JSON."),
+) -> None:
+    """Compila con daedalus en la VM (F7): -Wall -Wextra -Werror -pedantic -std=c11, errores en español."""
+    raise typer.Exit(_correr(comandos.build(fuentes or [], salida, json_salida)))
+
+
+@app.command("check")
+def check(
+    objetivo: str = typer.Argument(".", help="Archivo o carpeta a auditar."),
+    json_salida: bool = typer.Option(False, "--json", help="Hallazgos en JSON."),
+) -> None:
+    """Audita con ripley (F8): estilo (gaff), antipatrones (spunkmeyer) y seguridad (kaneda)."""
+    raise typer.Exit(_correr(comandos.check(objetivo, json_salida)))
+
+
+@app.command("fix")
+def fix(rutas: list[str] = typer.Argument(None, help="Archivos a corregir (por defecto, todos los .c y .h).")) -> None:
+    """Aplica los arreglos automáticos de gaff en la VM y los trae a tus archivos."""
+    raise typer.Exit(_correr(comandos.fix(rutas or [])))
+
+
+@app.command("run", context_settings={"allow_interspersed_args": False})
+def run(
+    binario: str = typer.Argument(None, show_default=False,
+                                  help="Ejecutable ya compilado en la VM (por defecto, compila el proyecto y lo corre)."),
+    argumentos: list[str] = typer.Argument(None, help="Argumentos para el programa."),
+    tetsuo: bool = typer.Option(False, "--tetsuo", help="Con AddressSanitizer y UBSan explicados por tetsuo (Shift+F5)."),
+    aislado: bool = typer.Option(False, "--aislado", help="Confinado por nostromo, con límites de tiempo y memoria."),
+) -> None:
+    """Ejecuta el programa en la VM conectado a esta terminal (F5); si falla con una señal, lo explica hal."""
+    raise typer.Exit(_correr(comandos.run(binario, argumentos or [], tetsuo=tetsuo, aislado=aislado)))
+
+
+@app.command("test")
+def test_cmd(json_salida: bool = typer.Option(False, "--json", help="Resultados en JSON.")) -> None:
+    """Compila y corre las pruebas de treadstone (tests/test_*.c) con tu código (F6)."""
+    raise typer.Exit(_correr(comandos.test(json_salida)))
+
+
+@app.command("sync")
+def sync(
+    accion: str = typer.Argument("todo", metavar="[subir|bajar|artefactos|estado]",
+                                 help="Sin acción: baja, fusiona, sube y trae artefactos."),
+    json_salida: bool = typer.Option(False, "--json", help="Estado en JSON (con `estado`)."),
+) -> None:
+    """Sincroniza tu carpeta con la VM (único responsable de mover archivos entre los dos)."""
+    if accion not in ("todo", "subir", "bajar", "artefactos", "estado"):
+        raise typer.BadParameter("tiene que ser subir, bajar, artefactos o estado", param_hint="ACCIÓN")
+    raise typer.Exit(_correr(comandos.sync(accion, json_salida)))
 
 
 def _setup_json(resultado: ResultadoSetup) -> dict[str, Any]:

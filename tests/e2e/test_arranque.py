@@ -165,3 +165,13 @@ def test_mother_doctor_del_guest(vm: tuple[Conexion, dict[str, Any], float]) -> 
     salida, errores, _ = conexion.ejecutar(4, ["mother", "doctor", "--perfil", "estudiante", "--json"], timeout=300)
     print(salida[-3000:], errores[-2000:])
     assert '"schema_version"' in salida
+
+
+@pytest.mark.xfail(strict=True, reason="el gcc de Alpine (musl) no trae libasan ni libubsan: tetsuo y el paso "
+                                       "AddressSanitizer de ripley no funcionan (decisión pendiente sobre la base)")
+def test_sanitizers(vm: tuple[Conexion, dict[str, Any], float]) -> None:
+    conexion, _, _ = vm
+    script = ("printf 'int main(void) { return 0; }' > s.c && "
+              "gcc -fsanitize=address,undefined -g s.c -o s && ./s")
+    _, errores, fin = conexion.ejecutar(5, ["sh", "-c", script])
+    assert fin["codigo"] == 0, errores

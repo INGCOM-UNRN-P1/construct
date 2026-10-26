@@ -38,8 +38,11 @@ def _leer_entrada(loop: asyncio.AbstractEventLoop, cola: asyncio.Queue[bytes], e
 
 async def conectar_terminal(proceso: ProcesoRemoto, *, entrada: BinaryIO | None = None,
                             salida: BinaryIO | None = None, errores: BinaryIO | None = None,
-                            reenviar_ctrl_c: bool = True) -> int:
-    """Bombea la terminal del Host hacia el proceso remoto hasta que termina; devuelve su código."""
+                            reenviar_ctrl_c: bool = True, registro_entrada: bytearray | None = None) -> int:
+    """Bombea la terminal del Host hacia el proceso remoto hasta que termina; devuelve su código.
+
+    `registro_entrada` junta lo que se le mandó (para repetirlo, por ejemplo, en el post-mortem de hal).
+    """
     entrada = entrada if entrada is not None else sys.stdin.buffer
     salida = salida if salida is not None else sys.stdout.buffer
     errores = errores if errores is not None else sys.stderr.buffer
@@ -64,6 +67,8 @@ async def conectar_terminal(proceso: ProcesoRemoto, *, entrada: BinaryIO | None 
             if not datos:
                 await proceso.cerrar_entrada()
                 return
+            if registro_entrada is not None:
+                registro_entrada.extend(datos)
             await proceso.escribir(datos)
 
     async def bombear_salida() -> None:
