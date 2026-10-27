@@ -73,12 +73,14 @@ RUN set -eu; \
 RUN useradd -m -s /bin/bash -u 1000 estudiante \
     && mkdir -p /workspace && chown estudiante:estudiante /workspace
 
-# Perfil estudiante con mother (sólo desde git, nunca de PyPI). Las herramientas quedan en /opt/p1
+# Perfil estudiante con mother (sólo desde git, nunca de PyPI). construct también es del perfil,
+# pero corre en el Host: en la VM no hace falta y se desinstala. Las herramientas quedan en /opt/p1
 # y sus comandos en /usr/local/bin, para todos los usuarios.
 ENV UV_TOOL_DIR=/opt/p1/herramientas UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_PYTHON_PREFERENCE=only-system UV_NO_CACHE=1
 RUN uv tool install "git+https://github.com/INGCOM-UNRN-P1/mother@${MOTHER_REF}" \
     && mother instalar --perfil estudiante \
+    && (uv tool uninstall construct >/dev/null 2>&1 || true) \
     && (mother doctor --perfil estudiante || echo "AVISO: mother doctor informó faltantes (ver arriba)")
 
 # tetsuo (ASan/UBSan en español) está en el perfil `analisis`, pero el IDE lo usa en Shift+F5 (SPEC §3.1).
