@@ -195,6 +195,8 @@ class Orquestador:
         self._trabajos: asyncio.Queue[ev.Comando | None] = asyncio.Queue()
         self._proceso: ProcesoRemoto | None = None
         self._enviada = bytearray()  # la entrada del programa, para repetírsela a hal
+        self._por_arrancar = 0  # Ejecutar en la cola o compilando: su entrada se guarda hasta que arranque
+        self._pendiente: list[bytes] = []
         self._breakpoints: dict[tuple[str, int], int | None] = {}  # (archivo, línea) → número en GDB
         self._depurador: Depurador | None = None
         self._salida_vista = 0
@@ -214,22 +216,37 @@ class Orquestador:
     async def _despachar(self, comando: ev.Comando) -> None:
         if isinstance(comando, ev.EnviarEntrada):
             if self._proceso is not None:
-                with contextlib.suppress(ErrorDeCanal):
-                    if comando.datos:
-                        self._enviada += comando.datos
-                        await self._proceso.escribir(comando.datos)
-                    else:
-                        await self._proceso.cerrar_entrada()
+                await self._entrada(comando.datos)
+            elif self._por_arrancar:
+                self._pendiente.append(comando.datos)  # el programa todavía se está compilando
         elif isinstance(comando, ev.Interrumpir):
             if self._proceso is not None:
                 with contextlib.suppress(ErrorDeCanal):
                     await self._proceso.enviar_senal(comando.senal)
         else:
+            if isinstance(comando, ev.Ejecutar) and comando.modo is ev.ModoEjecucion.NORMAL:
+                self._por_arrancar += 1
             await self._trabajos.put(comando)
+
+    async def _entrada(self, datos: bytes) -> None:
+        """A la entrada del programa que corre; vacío cierra la entrada (fin de archivo)."""
+        assert self._proceso is not None
+        with contextlib.suppress(ErrorDeCanal):
+            if datos:
+                self._enviada += datos
+                await self._proceso.escribir(datos)
+            else:
+                await self._proceso.cerrar_entrada()
 
     async def _trabajar(self) -> None:
         while (comando := await self._trabajos.get()) is not None:
-            await self.ejecutar(comando)
+            try:
+                await self.ejecutar(comando)
+            finally:
+                if isinstance(comando, ev.Ejecutar) and comando.modo is ev.ModoEjecucion.NORMAL:
+                    self._por_arrancar -= 1
+                    if not self._por_arrancar:
+                        self._pendiente.clear()  # no compiló: lo tecleado no es para otro programa
 
     async def ejecutar(self, comando: ev.Comando) -> None:
         """Un trabajo completo: TareaIniciada, sus eventos y TareaTerminada (o ErrorDeTarea)."""
@@ -344,6 +361,9 @@ class Orquestador:
             raise ValueError(proceso.error)
         muestras = []
         self._proceso, self._enviada = proceso, bytearray()
+        pendiente, self._pendiente = self._pendiente, []
+        for datos in pendiente:
+            await self._entrada(datos)
         try:
             while (marco := await proceso.siguiente()) is not None:
                 if marco.tipo in (Tipo.SALIDA, Tipo.ERRORES):

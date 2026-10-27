@@ -336,3 +336,16 @@ echo '{"ok": true}'
     assert eventos[-1] == ev.TareaTerminada(ev.Tarea.REPRODUCTOR, True,
                                             "hal_reproducer.sh guardado en .construct/artefactos/")
     assert (carpeta / ".construct" / "artefactos" / "hal_reproducer.sh").is_file()
+
+
+def test_la_entrada_que_llega_mientras_compila_no_se_pierde(agente_compilado: Path, herramientas: Path,
+                                                         tmp_path: Path) -> None:
+    async def prueba() -> list[ev.Evento]:
+        async with orquestador(agente_compilado, tmp_path, ECO) as (orq, eventos, _):
+            await atender(orq, ev.EnviarEntrada(b"antes\n"),  # sin Ejecutar en camino: se descarta
+                          ev.Ejecutar(), ev.EnviarEntrada(b"hola\n"), ev.EnviarEntrada(b""))  # sin pausas
+            return eventos
+
+    eventos = correr(prueba)
+    assert b"".join(e.datos for e in de_tipo(eventos, ev.SalidaPrograma) if not e.errores) == b"eco: hola\n"
+    assert de_tipo(eventos, ev.ProgramaTerminado) == [ev.ProgramaTerminado(0, None)]
