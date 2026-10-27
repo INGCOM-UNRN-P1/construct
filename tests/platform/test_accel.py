@@ -92,4 +92,4 @@ def test_probar_kvm_con_algo_que_no_es_kvm(tmp_path) -> None:
     falso = tmp_path / "kvm"
     falso.write_text("")
     disponible, detalle = probar_kvm(str(falso))
-    assert not disponible and "no responde como KVM" in detalle
+    assert not disponible and ("no responde como KVM" in detalle or "KVM sólo existe en Linux" in detalle)
