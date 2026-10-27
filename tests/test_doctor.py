@@ -175,6 +175,14 @@ def test_guest_con_fallas_las_detalla() -> None:
     assert not informe("construct", "0", [resumen, ripley])["ok"]
 
 
+def test_guest_ignora_a_construct() -> None:
+    salida = informe_mother({"nombre": "daedalus", "requerido": True, "ok": True},
+                            {"nombre": "construct", "requerido": True, "ok": False, "detalle": "doctor: faltan qemu"},
+                            ok=False)
+    [resumen] = chequeos_del_guest(salida, 1)
+    assert resumen.ok and "1 componentes requeridos" in resumen.detalle
+
+
 def test_guest_sin_json() -> None:
     [resumen] = chequeos_del_guest("Traceback (most recent call last):", 1)
     assert resumen.requerido and not resumen.ok and "construct setup --forzar" in resumen.sugerencia

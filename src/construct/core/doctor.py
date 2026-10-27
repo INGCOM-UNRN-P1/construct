@@ -219,12 +219,13 @@ def chequeos_del_guest(salida: str, codigo: int) -> list[Chequeo]:
     """El resumen del `mother doctor --json` del Guest más cada chequeo requerido que falló."""
     try:
         datos = json.loads(salida)
-        lista = [c for c in datos.get("chequeos", []) if isinstance(c, dict)]
+        # construct es del perfil estudiante pero corre en el Host: su doctor dentro de la VM no aplica.
+        lista = [c for c in datos.get("chequeos", []) if isinstance(c, dict) and c.get("nombre") != "construct"]
     except (ValueError, AttributeError):
         return [Chequeo(NOMBRE_GUEST, True, False, f"mother doctor --json no devolvió JSON (código {codigo})",
                         PROPOSITO_GUEST, "Actualizá la imagen con `construct setup --forzar`.")]
     fallidos = [c for c in lista if c.get("requerido") and not c.get("ok")]
-    ok = bool(datos.get("ok", codigo == 0)) and not fallidos
+    ok = not fallidos  # el `ok` de mother contaría a construct
     version = f"mother {datos['version']}: " if datos.get("version") else ""
     if ok:
         detalle = f"{version}{sum(1 for c in lista if c.get('requerido'))} componentes requeridos en verde"
