@@ -5,9 +5,9 @@ IDE pedagógico y orquestador de máquina virtual del perfil `estudiante` de Pro
 de las herramientas dentro de una VM Debian acelerada por hardware, con la misma experiencia en
 Windows, macOS y Linux.
 
-> **Estado:** en desarrollo (Fases 1 a 5 de [`PLAN.md`](PLAN.md)): la línea de comandos completa,
-> el IDE en la terminal (`construct ui`) y `construct jonesy`. Falta la verificación integral y la
-> distribución (Fase 6).
+> **Estado:** Fases 1 a 6 de [`PLAN.md`](PLAN.md) implementadas: la línea de comandos completa, el
+> IDE en la terminal (`construct ui`) y `construct jonesy`, verificados en Linux con KVM. Falta
+> completar la [matriz manual](docs/matriz_manual.md) en Windows, macOS y las terminales reales.
 
 ## Requisitos
 
@@ -21,25 +21,62 @@ En las Mac con Apple Silicon la VM usa un Guest `aarch64` (acelerado); en el res
 
 ## Instalación
 
-1. Instalá [uv](https://docs.astral.sh/uv/getting-started/installation/).
-2. Instalá construct:
+Una sola vez por computadora. Ninguno de los pasos instala compiladores ni herramientas de la
+cátedra en tu sistema: todo eso vive en la VM.
 
-   ```bash
-   uv tool install git+https://github.com/INGCOM-UNRN-P1/construct
+### Windows 10/11
+
+1. Activá la plataforma del hipervisor en una PowerShell **como administrador** y reiniciá:
+
+   ```powershell
+   Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform
    ```
 
-3. Prepará la computadora: crea las carpetas, baja la imagen de la VM y te dice qué falta
-   instalar, con el comando exacto para tu sistema:
+   Si `construct doctor` dice que la virtualización está apagada, activá VT-x/AMD-V en el BIOS.
+2. Instalá QEMU, Git y uv (en una PowerShell común):
 
-   ```bash
-   construct setup
+   ```powershell
+   winget install --id SoftwareFreedomConservancy.QEMU -e
+   winget install --id Git.Git -e
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-4. Verificá que quedó todo listo:
+3. Cerrá y abrí la terminal (mejor **Windows Terminal**) y seguí con
+   [los pasos comunes](#en-los-tres-sistemas).
 
-   ```bash
-   construct doctor
-   ```
+### macOS 13+
+
+```bash
+xcode-select --install            # git
+brew install qemu                 # https://brew.sh si todavía no tenés Homebrew
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+En las Mac con Apple Silicon la VM es `aarch64` y anda acelerada; no hace falta Rosetta.
+
+### Linux
+
+```bash
+# Debian / Ubuntu
+sudo apt install qemu-system-x86 qemu-utils git          # en ARM: qemu-system-arm
+# Fedora
+sudo dnf install qemu-system-x86 qemu-img git
+# Arch
+sudo pacman -S qemu-system-x86 qemu-img git
+
+sudo usermod -aG kvm "$USER"      # y volvé a iniciar sesión: KVM sin sudo
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### En los tres sistemas
+
+```bash
+uv tool install git+https://github.com/INGCOM-UNRN-P1/construct
+construct setup                   # baja la imagen de la VM y te dice qué falta, con el comando exacto
+construct doctor                  # todo en verde: listo
+```
+
+Para actualizar: `uv tool upgrade construct` y, si cambió la imagen, `construct setup --forzar`.
 
 ## Uso
 
@@ -145,6 +182,8 @@ Imagen del Guest (Linux con podman o docker; ver [`docs/protocolo.md`](docs/prot
 ```bash
 vm_image/build_vm.sh --arch x86_64 --version 0.1.0 --salida dist/imagenes
 CONSTRUCT_IMAGEN_PRUEBA=dist/imagenes/x86_64 uv run pytest tests/e2e -s   # la arranca de verdad
+CONSTRUCT_IMAGEN_PRUEBA=dist/imagenes/x86_64 uv run pytest \
+    tests/test_student_tools_ide.py tests/test_media_artifacts.py      # el perfil estudiante entero
 vm_image/generar_manifiesto.py dist/imagenes --version 0.1.0 --salida dist/release
 construct setup -m dist/release/imagenes.json                          # la instala como un alumno
 ```
@@ -157,6 +196,54 @@ abre el GDB del Host contra un `gdbserver` del Guest, con el sysroot de la VM y 
 fuentes; `construct dev gdbserver` es el puente que usa (`target remote | …`).
 
 Ver [`AGENTS.md`](AGENTS.md) para las convenciones de trabajo y [`PLAN.md`](PLAN.md) para la hoja de ruta.
+
+<!-- p1:referencia:inicio — generado por p1-tools/scripts/readme_generado.py: no editar a mano -->
+
+## Referencia rápida
+
+### Requisitos
+
+- Python ≥ 3.12 y [uv](https://docs.astral.sh/uv/getting-started/installation/).
+- Programas del sistema: `git`, `qemu-system-x86_64`, `qemu-img`.
+
+| Sistema | `git` |
+|:--|:--|
+| Debian / Ubuntu | `sudo apt install git` |
+| Fedora | `sudo dnf install git` |
+| Windows | incluido en el entorno de la cátedra (MSYS2 UCRT64) |
+| macOS | `xcode-select --install` |
+
+### Comandos
+
+| Comando | Descripción |
+|:--|:--|
+| `construct ui` | Abre el IDE en la terminal: editor, hallazgos, memoria, consola y pruebas sobre la VM. |
+| `construct doctor` | Verifica el Host y, si la máquina virtual está corriendo, las herramientas de adentro. |
+| `construct build` | Compila con daedalus en la VM (F7): -Wall -Wextra -Werror -pedantic -std=c11, errores en español. |
+| `construct check` | Audita con ripley (F8): estilo (gaff), antipatrones (spunkmeyer) y seguridad (kaneda). |
+| `construct fix` | Aplica los arreglos automáticos de gaff en la VM y los trae a tus archivos. |
+| `construct run` | Ejecuta el programa en la VM conectado a esta terminal (F5); si falla con una señal, lo explica hal. |
+| `construct test` | Compila y corre las pruebas de treadstone (tests/test_*.c) con tu código (F6). |
+| `construct jonesy` | Abre jonesy, el IDE de terminal de la cátedra, dentro de la VM y en esta terminal (RF-05). |
+| `construct sync` | Sincroniza tu carpeta con la VM (único responsable de mover archivos entre los dos). |
+| `construct setup` | Prepara el Host: carpetas, diagnóstico con instrucciones y descarga de la imagen del Guest. |
+| `construct vm` | Máquina virtual: arrancarla, apagarla, ver su estado o ejecutar algo adentro. |
+
+Ayuda de cada comando: `construct <comando> -h`.
+
+### Salida JSON
+
+Con `--json`, estos comandos emiten el resultado como JSON por la salida estándar, para usarlo desde scripts, ripley o dredd: `construct doctor`, `construct build`, `construct check`, `construct test`, `construct sync`, `construct setup`. El de `doctor --json` lleva `schema_version` y `ok`.
+
+### Códigos de salida
+
+| Código | Significado |
+|:--|:--|
+| `0` | Terminó bien (en `doctor`: está todo lo requerido). |
+| `1` | El comando encontró problemas (hallazgos, pruebas que fallan, un umbral que no se alcanza) o un dato no se pudo usar (un archivo ilegible, un formato inválido). |
+| `2` | Error de uso: comando, opción o argumento inválido. |
+
+<!-- p1:referencia:fin -->
 
 ## Licencia
 

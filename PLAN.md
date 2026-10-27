@@ -280,6 +280,12 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   4. Registrar `construct` en `dev/tools/p1-tools/ecosistema.toml` (perfil `estudiante`).
   5. Ejecutar `python3 revision/evidencia/generar_docs.py` para emitir `revision/docs/construct.md` y actualizar `revision/docs/README.md`.
 * **Checkpoint:** CI en verde en las tres plataformas, matriz manual completa y documentación indexada.
+* **Estado (27/10/2026):** las tareas 1, 3, 4 y 5 están hechas; la 2 quedó preparada.
+  1. `tests/test_student_tools_ide.py` y `tests/test_media_artifacts.py`, sobre una sesión real (`tests/vm_real.py`): 11 pasan contra la VM Debian con KVM. Dos *xfail* estrictos documentan problemas de satélites: `tetsuo` sin el detalle de ASan bajo `nostromo`, y `bitmaps`, que guarda los píxeles en RGB cuando el formato BMP es BGR. Encontraron un bug propio, ya corregido: la entrada escrita mientras el programa compila se perdía. Corren en `imagenes.yml` (e2e-kvm), junto con el job nuevo `e2e-tcg` en Windows y macOS, que todavía no corrió.
+  2. Checklist para firmar en [`docs/matriz_manual.md`](docs/matriz_manual.md); falta completarla en cada equipo.
+  3. README con la instalación en tres bloques y la referencia generada por `p1-tools/scripts/readme_generado.py`.
+  4. `construct` registrado en `p1-tools/ecosistema.toml` (perfil `estudiante`). Como `mother` no tiene cómo excluir herramientas, la imagen desinstala construct del Guest y el doctor encadenado ignora su chequeo.
+  5. `revision/docs/construct.md` generado con `revision/evidencia/generar_docs.py`.
 
 ---
 

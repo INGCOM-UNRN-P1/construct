@@ -43,6 +43,14 @@ versiones según [SemVer](https://semver.org/lang/es/).
 - **platform**: modo crudo de la terminal en POSIX (`termios`, SIGWINCH) y Windows (`SetConsoleMode` con VT).
 - **cli**: `construct jonesy`, jonesy en la VM con la terminal del Host en crudo, redimensionable, y la
   vuelta al Host de lo editado.
+- **bridge**: suites de integración del perfil estudiante y de artefactos contra la VM real.
+- **ci**: integración con KVM y arranque en TCG en Windows y macOS.
+- **docs**: instalación por sistema en el README y la matriz manual de verificación.
+
+### Corregido
+
+- **bridge**: la entrada escrita mientras el programa compila ya no se pierde.
+- **doctor**: el doctor de construct dentro de la VM no cuenta (construct corre en el Host).
 
 ### Cambiado
 
