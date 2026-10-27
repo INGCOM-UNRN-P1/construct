@@ -5,6 +5,9 @@
 # `linux/arm64` (Guest aarch64, para hosts ARM: decisión D1). build_vm.sh convierte el contenedor en
 # kernel + initramfs + rootfs.qcow2.
 ARG DEBIAN=trixie
+ARG RUST=1.88
+ARG JONESY_VERSION=0.1.0
+ARG TARGETARCH
 
 # --- Agente -----------------------------------------------------------------------------------
 FROM docker.io/library/debian:${DEBIAN}-slim AS agente
@@ -14,26 +17,30 @@ RUN make -C /src all SALIDA=/construct_daemon PRELOAD=/libconstruct_preload.so \
     && strip /construct_daemon /libconstruct_preload.so
 
 # --- jonesy: binario del release (x86_64) o compilado desde el tag (aarch64) --------------------
-FROM docker.io/library/debian:${DEBIAN}-slim AS jonesy
-ARG TARGETARCH
-ARG JONESY_VERSION=0.1.0
+# jonesy pide rustc >= 1.88 y trixie trae 1.85: en aarch64 se compila con la imagen oficial de Rust,
+# también trixie, así el binario enlaza con la misma glibc que el Guest.
+FROM docker.io/library/debian:${DEBIAN}-slim AS jonesy-amd64
+ARG JONESY_VERSION
 ARG JONESY_SHA256_X86_64=ac679270f59c9b0d2368d5cb5414dff3d5ac78f631e249faa645a3f4f85b1fcc
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl git \
-        $([ "$TARGETARCH" = amd64 ] || echo cargo) >/dev/null
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
 RUN set -eu; \
-    if [ "$TARGETARCH" = "amd64" ]; then \
-        nombre="jonesy-${JONESY_VERSION}-linux-x86_64-musl"; \
-        curl -fsSL -o /tmp/j.tar.gz \
-            "https://github.com/INGCOM-UNRN-P1/jonesy/releases/download/v${JONESY_VERSION}/${nombre}.tar.gz"; \
-        echo "${JONESY_SHA256_X86_64}  /tmp/j.tar.gz" | sha256sum -c -; \
-        tar -xzf /tmp/j.tar.gz -C /tmp; \
-        install -m 0755 "/tmp/${nombre}/jonesy" /jonesy; \
-    else \
-        git -c advice.detachedHead=false clone -q --depth 1 --branch "v${JONESY_VERSION}" \
-            https://github.com/INGCOM-UNRN-P1/jonesy /tmp/jonesy; \
-        cargo build --release --locked --manifest-path /tmp/jonesy/Cargo.toml; \
-        install -m 0755 /tmp/jonesy/target/release/jonesy /jonesy; \
-    fi
+    nombre="jonesy-${JONESY_VERSION}-linux-x86_64-musl"; \
+    curl -fsSL -o /tmp/j.tar.gz \
+        "https://github.com/INGCOM-UNRN-P1/jonesy/releases/download/v${JONESY_VERSION}/${nombre}.tar.gz"; \
+    echo "${JONESY_SHA256_X86_64}  /tmp/j.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/j.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/${nombre}/jonesy" /jonesy
+
+FROM docker.io/library/rust:${RUST}-slim-${DEBIAN} AS jonesy-arm64
+ARG JONESY_VERSION
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null
+RUN set -eu; \
+    git -c advice.detachedHead=false clone -q --depth 1 --branch "v${JONESY_VERSION}" \
+        https://github.com/INGCOM-UNRN-P1/jonesy /tmp/jonesy; \
+    cargo build --release --locked --manifest-path /tmp/jonesy/Cargo.toml; \
+    install -m 0755 /tmp/jonesy/target/release/jonesy /jonesy
+
+FROM jonesy-${TARGETARCH} AS jonesy
 
 # --- Sistema -----------------------------------------------------------------------------------
 FROM docker.io/library/debian:${DEBIAN}-slim
@@ -74,14 +81,21 @@ RUN useradd -m -s /bin/bash -u 1000 estudiante \
     && mkdir -p /workspace && chown estudiante:estudiante /workspace
 
 # Perfil estudiante con mother (sólo desde git, nunca de PyPI). construct también es del perfil,
-# pero corre en el Host: en la VM no hace falta y se desinstala. Las herramientas quedan en /opt/p1
-# y sus comandos en /usr/local/bin, para todos los usuarios.
+# pero corre en el Host y mother no puede excluirlo: se instala con el manifiesto publicado sin él
+# (manifiesto_guest.py). Las herramientas quedan en /opt/p1 y sus comandos en /usr/local/bin, para
+# todos los usuarios.
 ENV UV_TOOL_DIR=/opt/p1/herramientas UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_PYTHON_PREFERENCE=only-system UV_NO_CACHE=1
-RUN uv tool install "git+https://github.com/INGCOM-UNRN-P1/mother@${MOTHER_REF}" \
-    && mother instalar --perfil estudiante \
-    && (uv tool uninstall construct >/dev/null 2>&1 || true) \
-    && (mother doctor --perfil estudiante || echo "AVISO: mother doctor informó faltantes (ver arriba)")
+ARG MANIFIESTO_URL=https://raw.githubusercontent.com/INGCOM-UNRN-P1/toolbox/main/ecosistema.toml
+COPY manifiesto_guest.py /tmp/manifiesto_guest.py
+RUN set -eu; \
+    curl -fsSL -o /tmp/ecosistema.toml "$MANIFIESTO_URL"; \
+    python3 /tmp/manifiesto_guest.py /tmp/ecosistema.toml /tmp/guest.toml construct; \
+    export MOTHER_MANIFIESTO=/tmp/guest.toml; \
+    uv tool install "git+https://github.com/INGCOM-UNRN-P1/mother@${MOTHER_REF}"; \
+    mother instalar --perfil estudiante; \
+    mother doctor --perfil estudiante || echo "AVISO: mother doctor informó faltantes (ver arriba)"; \
+    rm /tmp/ecosistema.toml /tmp/guest.toml /tmp/manifiesto_guest.py
 
 # tetsuo (ASan/UBSan en español) está en el perfil `analisis`, pero el IDE lo usa en Shift+F5 (SPEC §3.1).
 RUN uv tool install "tetsuo[ecosistema] @ git+https://github.com/INGCOM-UNRN-P1/tetsuo"

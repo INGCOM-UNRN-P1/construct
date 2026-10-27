@@ -284,7 +284,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   1. `tests/test_student_tools_ide.py` y `tests/test_media_artifacts.py`, sobre una sesión real (`tests/vm_real.py`): 11 pasan contra la VM Debian con KVM. Dos *xfail* estrictos documentan problemas de satélites: `tetsuo` sin el detalle de ASan bajo `nostromo`, y `bitmaps`, que guarda los píxeles en RGB cuando el formato BMP es BGR. Encontraron un bug propio, ya corregido: la entrada escrita mientras el programa compila se perdía. Corren en `imagenes.yml` (e2e-kvm), junto con el job nuevo `e2e-tcg` en Windows y macOS, que todavía no corrió.
   2. Checklist para firmar en [`docs/matriz_manual.md`](docs/matriz_manual.md); falta completarla en cada equipo.
   3. README con la instalación en tres bloques y la referencia generada por `p1-tools/scripts/readme_generado.py`.
-  4. `construct` registrado en `p1-tools/ecosistema.toml` (perfil `estudiante`). Como `mother` no tiene cómo excluir herramientas, la imagen desinstala construct del Guest y el doctor encadenado ignora su chequeo.
+  4. `construct` registrado en `p1-tools/ecosistema.toml` (perfil `estudiante`). Como `mother` no tiene cómo excluir herramientas, la imagen instala el perfil con el manifiesto publicado sin construct (`vm_image/manifiesto_guest.py`) y el doctor encadenado ignora su chequeo.
   5. `revision/docs/construct.md` generado con `revision/evidencia/generar_docs.py`.
 * **Después del push (27/10/2026):** `construct` y `p1-tools` están publicados y el workflow `CI` está en verde en Linux, Windows y macOS (Python 3.12 y 3.13, lint y tipos). `imagenes.yml` sólo corre con un tag `imagen-v*`, un PR que toque `vm_image/` o a mano, así que todavía no corrió nunca. Siguientes pasos, en orden:
   1. **Primera corrida de `imagenes.yml`** (`gh workflow run imagenes.yml`): construye la imagen `aarch64` por primera vez en el runner ARM y corre `e2e-kvm`, con las suites de integración, y `e2e-tcg` en Windows y macOS. Lo que falle se corrige antes de publicar.
@@ -296,7 +296,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
      * `nostromo`/`tetsuo`: bajo el sandbox se pierde el informe de ASan.
      * `mother`: no hay forma de excluir una herramienta de un perfil.
 
-     Cuando se arreglen, los *xfail* estrictos van a fallar y ahí se sacan. Si `mother` permite excluir `construct`, se quitan también la desinstalación de `vm_image/Dockerfile.debian` y el filtro de `chequeos_del_guest`.
+     Cuando se arreglen, los *xfail* estrictos van a fallar y ahí se sacan. Si `mother` permite excluir `construct`, se quitan también `vm_image/manifiesto_guest.py` y el filtro de `chequeos_del_guest`.
   6. **Fijar las versiones del Guest:** cuando `ecosistema.toml` fije la matriz del cuatrimestre, la imagen deja de instalar las herramientas desde la rama principal de cada repo y se publica una imagen nueva.
   7. **`revision`:** commitear `docs/construct.md` y la fila del índice, que quedaron sin seguimiento junto con el generador.
 

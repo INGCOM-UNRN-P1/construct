@@ -51,6 +51,9 @@ versiones según [SemVer](https://semver.org/lang/es/).
 
 - **bridge**: la entrada escrita mientras el programa compila ya no se pierde.
 - **doctor**: el doctor de construct dentro de la VM no cuenta (construct corre en el Host).
+- **vm-image**: mother instala el perfil estudiante con un manifiesto sin construct, que corre en el Host
+  (y cuyo repo privado rompía el build), y jonesy se compila en aarch64 con Rust 1.88, porque el 1.85 de
+  trixie no alcanza.
 
 ### Cambiado
 
