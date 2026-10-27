@@ -280,23 +280,30 @@ def _setup_json(resultado: ResultadoSetup) -> dict[str, Any]:
 def setup(
     manifiesto: str = typer.Option(None, "--manifiesto", "-m", show_default=False,
                                    help="URL o ruta del manifiesto de imágenes (por defecto, la última publicada)."),
+    imagen: Path = typer.Option(None, "--imagen", "-i", show_default=False, file_okay=False,
+                                help="Instala una imagen construida en esta máquina (la carpeta que deja "
+                                     "vm_image/build_vm.sh) en lugar de bajarla."),
     forzar: bool = typer.Option(False, "--forzar", help="Vuelve a bajar la imagen aunque ya esté instalada."),
     sin_imagen: bool = typer.Option(False, "--sin-imagen", help="Sólo prepara las carpetas y diagnostica el Host."),
     json_salida: bool = typer.Option(False, "--json", help="Resultado en JSON con schema_version."),
 ) -> None:
     """Prepara el Host: carpetas, diagnóstico con instrucciones y descarga de la imagen del Guest."""
     consola = Console(stderr=json_salida)
+    if imagen is not None and (manifiesto is not None or sin_imagen):
+        consola.print("[bold red]✗[/bold red] --imagen no se combina con --manifiesto ni con --sin-imagen.")
+        raise typer.Exit(2)
     with Progress(TextColumn("[bold]{task.description}"), BarColumn(), DownloadColumn(), TransferSpeedColumn(),
                   console=consola, transient=True) as barra:
         tareas: dict[str, TaskID] = {}
 
         def progreso(nombre: str, bajados: int, total: int | None) -> None:
             if nombre not in tareas:
-                tareas[nombre] = barra.add_task(f"Bajando {nombre}", total=total)
+                tareas[nombre] = barra.add_task(f"{'Copiando' if imagen is not None else 'Bajando'} {nombre}",
+                                                total=total)
             barra.update(tareas[nombre], completed=bajados)
 
         resultado = preparar(_entorno(), manifiesto=imagenes.url_del_manifiesto(explicita=manifiesto),
-                             forzar=forzar, sin_imagen=sin_imagen, progreso=progreso)
+                             forzar=forzar, sin_imagen=sin_imagen, progreso=progreso, imagen_local=imagen)
 
     if json_salida:
         typer.echo(json.dumps(_setup_json(resultado), ensure_ascii=False, indent=2))
@@ -309,7 +316,8 @@ def setup(
     if resultado.error_imagen:
         consola.print(f"[bold red]✗ Imagen del Guest:[/bold red] {resultado.error_imagen}")
     elif resultado.imagen is not None:
-        accion = "descargada" if resultado.descargada else "ya estaba instalada"
+        accion = ("instalada" if imagen is not None else "descargada") if resultado.descargada \
+            else "ya estaba instalada"
         consola.print(f"[green]✓[/green] Imagen {resultado.imagen.arquitectura.value} {resultado.imagen.version} "
                       f"{accion} en {resultado.imagen.carpeta}")
     elif sin_imagen:

@@ -46,6 +46,8 @@ versiones según [SemVer](https://semver.org/lang/es/).
 - **bridge**: suites de integración del perfil estudiante y de artefactos contra la VM real.
 - **ci**: integración con KVM y arranque en TCG en Windows y macOS.
 - **docs**: instalación por sistema en el README y la matriz manual de verificación.
+- **setup**: `construct setup --imagen CARPETA` instala una imagen construida con `build_vm.sh` sin
+  bajarla ni armar un release.
 
 ### Corregido
 

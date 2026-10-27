@@ -84,6 +84,7 @@ Para actualizar: `uv tool upgrade construct` y, si cambió la imagen, `construct
 construct setup             # carpetas, diagnóstico y descarga verificada (SHA-256) de la imagen
 construct setup --forzar    # vuelve a bajar la imagen
 construct setup -m RUTA     # usa otro manifiesto de imágenes (URL o archivo local)
+construct setup -i CARPETA  # instala una imagen construida en tu máquina, sin bajar nada
 construct doctor            # diagnóstico del Host y, con la VM arriba, `mother doctor` adentro
 construct doctor --json     # el mismo informe en JSON (sobre común de yutani)
 construct doctor --dev      # además, lo que necesita el modo desarrollo (GDB del Host)
@@ -184,12 +185,16 @@ vm_image/build_vm.sh --arch x86_64 --version 0.1.0 --salida dist/imagenes
 CONSTRUCT_IMAGEN_PRUEBA=dist/imagenes/x86_64 uv run pytest tests/e2e -s   # la arranca de verdad
 CONSTRUCT_IMAGEN_PRUEBA=dist/imagenes/x86_64 uv run pytest \
     tests/test_student_tools_ide.py tests/test_media_artifacts.py      # el perfil estudiante entero
-vm_image/generar_manifiesto.py dist/imagenes --version 0.1.0 --salida dist/release
-construct setup -m dist/release/imagenes.json                          # la instala como un alumno
+construct setup --imagen dist/imagenes                                 # la instala para usarla
 ```
 
 El workflow `imagenes.yml` construye y prueba las dos arquitecturas y, con un tag `imagen-vX.Y.Z`,
-publica el release que `construct setup` baja por defecto.
+publica el release que `construct setup` baja por defecto (`vm_image/generar_manifiesto.py` arma esa
+carpeta, que también se instala con `construct setup -m dist/release/imagenes.json`).
+
+`construct setup --imagen` acepta la carpeta que deja `build_vm.sh`, la de una arquitectura
+(`dist/imagenes/x86_64`) o la de un release con `imagenes.json`. La versión queda como
+`local-<hash del rootfs>`: si reconstruís la imagen, el mismo comando instala la nueva.
 
 Modo desarrollo (`[dev] habilitado = true` o `CONSTRUCT_DEV=1`): `construct dev gdb [binario]`
 abre el GDB del Host contra un `gdbserver` del Guest, con el sysroot de la VM y las rutas de tus

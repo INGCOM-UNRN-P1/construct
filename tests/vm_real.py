@@ -11,8 +11,6 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-import subprocess
-import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -30,7 +28,6 @@ from construct.core.sync_manager import SyncManager
 from construct.platform import host
 from construct.platform.paths import directorios
 
-RAIZ = Path(__file__).resolve().parent.parent
 GIT = shutil.which("git") or "git"
 
 
@@ -52,12 +49,9 @@ def vm_real(tmp_path_factory: pytest.TempPathFactory) -> Iterator[VMReal]:
     previo = os.environ.get("CONSTRUCT_HOME")
     os.environ["CONSTRUCT_HOME"] = str(home)  # lo hereda el proceso de la sesión
     try:
-        release = tmp_path_factory.mktemp("release")
-        subprocess.run([sys.executable, str(RAIZ / "vm_image" / "generar_manifiesto.py"), str(Path(origen).parent),
-                        "--version", "0.0.0", "--salida", str(release)], check=True, capture_output=True)
         dirs = directorios()
         dirs.crear()
-        imagenes.instalar(imagenes.obtener_manifiesto(str(release / "imagenes.json")), arquitectura, dirs.imagenes)
+        imagenes.instalar(imagenes.manifiesto_local(Path(origen), arquitectura), arquitectura, dirs.imagenes)
         info = arrancar_sesion(dirs, home)
         yield VMReal(home, info)
         asyncio.run(detener_sesion(info))

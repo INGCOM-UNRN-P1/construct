@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from yutani.doctor import Chequeo
 
@@ -40,7 +41,9 @@ def preparar(
     sin_imagen: bool = False,
     progreso: imagenes.Progreso | None = None,
     obtener: Callable[[str], imagenes.Manifiesto] = imagenes.obtener_manifiesto,
+    imagen_local: Path | None = None,
 ) -> ResultadoSetup:
+    """Con `imagen_local`, instala la imagen de esa carpeta en lugar de la del manifiesto."""
     entorno.directorios.crear()
     lista = chequeos(entorno, imagen=False)
     if sin_imagen:
@@ -55,7 +58,9 @@ def preparar(
     except ValueError as error:
         return ResultadoSetup(lista, None, False, f"no se puede elegir la imagen: {error}")
     try:
-        imagen, descargada = imagenes.instalar(obtener(manifiesto), arquitectura, entorno.directorios.imagenes,
+        elegido = (imagenes.manifiesto_local(imagen_local, arquitectura) if imagen_local is not None
+                   else obtener(manifiesto))
+        imagen, descargada = imagenes.instalar(elegido, arquitectura, entorno.directorios.imagenes,
                                                forzar=forzar, progreso=progreso)
     except imagenes.ErrorDeImagen as error:
         return ResultadoSetup(lista, None, False, str(error))

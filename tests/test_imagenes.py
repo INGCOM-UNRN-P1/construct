@@ -162,3 +162,55 @@ def test_url_del_manifiesto() -> None:
     assert imagenes.url_del_manifiesto({}) == imagenes.MANIFIESTO_POR_DEFECTO
     assert imagenes.url_del_manifiesto({"CONSTRUCT_MANIFIESTO": "x.json"}) == "x.json"
     assert imagenes.url_del_manifiesto({"CONSTRUCT_MANIFIESTO": "x.json"}, "y.json") == "y.json"
+
+
+def construir(carpeta: Path, marca: str = "1") -> Path:
+    """Lo que deja build_vm.sh para una arquitectura."""
+    carpeta.mkdir(parents=True, exist_ok=True)
+    for nombre in imagenes.ARCHIVOS_DE_IMAGEN:
+        (carpeta / nombre).write_bytes(f"{carpeta.name}-{nombre}-{marca}".encode() * 100)
+    return carpeta
+
+
+@pytest.mark.parametrize("pasada", ["salida", "arquitectura"])
+def test_imagen_local_de_build_vm(tmp_path: Path, pasada: str) -> None:
+    arq = construir(tmp_path / "dist" / "x86_64")
+    manifiesto = imagenes.manifiesto_local(tmp_path / "dist" if pasada == "salida" else arq, Arquitectura.X86_64)
+    rootfs = hashlib.sha256((arq / "rootfs.qcow2").read_bytes()).hexdigest()
+    assert manifiesto.version == "local-" + rootfs[:12] and manifiesto.protocolo == 1
+    imagen, copiada = imagenes.instalar(manifiesto, Arquitectura.X86_64, tmp_path / "imagenes")
+    assert copiada and imagen.completa() and imagen.archivos["rootfs.qcow2"] == rootfs
+    assert imagen.ruta("initramfs").read_bytes() == (arq / "initramfs").read_bytes()
+
+
+def test_imagen_local_reconstruida_se_reinstala(tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    construir(dist / "x86_64")
+    previa, _ = imagenes.instalar(imagenes.manifiesto_local(dist, Arquitectura.X86_64), Arquitectura.X86_64,
+                                  tmp_path / "imagenes")
+    _, otra_vez = imagenes.instalar(imagenes.manifiesto_local(dist, Arquitectura.X86_64), Arquitectura.X86_64,
+                                    tmp_path / "imagenes")
+    assert not otra_vez
+    construir(dist / "x86_64", marca="2")
+    nueva, copiada = imagenes.instalar(imagenes.manifiesto_local(dist, Arquitectura.X86_64), Arquitectura.X86_64,
+                                       tmp_path / "imagenes")
+    assert copiada and nueva.version != previa.version and not previa.carpeta.exists()
+
+
+def test_imagen_local_con_release(tmp_path: Path) -> None:
+    publicar(tmp_path / "release", "0.2.0")
+    assert imagenes.manifiesto_local(tmp_path / "release", Arquitectura.AARCH64).version == "0.2.0"
+
+
+def test_imagen_local_de_otra_arquitectura(tmp_path: Path) -> None:
+    with pytest.raises(imagenes.ErrorDeImagen, match="es una imagen aarch64 y este Host necesita una x86_64"):
+        imagenes.manifiesto_local(construir(tmp_path / "aarch64"), Arquitectura.X86_64)
+
+
+def test_imagen_local_incompleta(tmp_path: Path) -> None:
+    carpeta = construir(tmp_path / "x86_64")
+    (carpeta / "initramfs").unlink()
+    with pytest.raises(imagenes.ErrorDeImagen, match="le falta initramfs"):
+        imagenes.manifiesto_local(carpeta, Arquitectura.X86_64)
+    with pytest.raises(imagenes.ErrorDeImagen, match="no existe la carpeta"):
+        imagenes.manifiesto_local(tmp_path / "nada", Arquitectura.X86_64)

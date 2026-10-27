@@ -158,6 +158,45 @@ def obtener_manifiesto(origen: str) -> Manifiesto:
     return parsear_manifiesto(datos, url)
 
 
+ARCHIVOS_DE_IMAGEN = ("vmlinuz", "initramfs", "rootfs.qcow2")
+"""Lo que deja `vm_image/build_vm.sh` por arquitectura y lo que arranca la sesión."""
+
+
+def _sha256(ruta: Path) -> str:
+    suma = hashlib.sha256()
+    with ruta.open("rb") as archivo:
+        while bloque := archivo.read(BLOQUE):
+            suma.update(bloque)
+    return suma.hexdigest()
+
+
+def manifiesto_local(carpeta: Path, arquitectura: Arquitectura) -> Manifiesto:
+    """Manifiesto de una imagen construida en esta máquina (`construct setup --imagen`).
+
+    Acepta la carpeta de un release (con `imagenes.json`), la salida de `build_vm.sh` (con una
+    subcarpeta por arquitectura) o directamente la carpeta de una arquitectura con `vmlinuz`,
+    `initramfs` y `rootfs.qcow2`. La versión queda como `local-<12 del SHA-256 del rootfs>`, así
+    una imagen reconstruida se vuelve a instalar sola.
+    """
+    if not carpeta.is_dir():
+        raise ErrorDeImagen(f"no existe la carpeta {carpeta}.")
+    if (carpeta / "imagenes.json").is_file():
+        return obtener_manifiesto(str(carpeta / "imagenes.json"))
+    if (carpeta / arquitectura.value).is_dir():
+        carpeta = carpeta / arquitectura.value
+    elif carpeta.name in {a.value for a in Arquitectura} and carpeta.name != arquitectura.value:
+        raise ErrorDeImagen(f"{carpeta} es una imagen {carpeta.name} y este Host necesita una {arquitectura.value}.")
+    if faltan := [n for n in ARCHIVOS_DE_IMAGEN if not (carpeta / n).is_file()]:
+        raise ErrorDeImagen(f"a {carpeta} le falta {', '.join(faltan)}: pasá la carpeta que dejó "
+                            f"`vm_image/build_vm.sh` (o su subcarpeta {arquitectura.value}).")
+    archivos = tuple(ArchivoDeImagen(nombre=n, url=(carpeta / n).resolve().as_uri(), sha256=_sha256(carpeta / n),
+                                     tamano=(carpeta / n).stat().st_size)
+                     for n in ARCHIVOS_DE_IMAGEN)
+    version = "local-" + archivos[-1].sha256[:12]
+    return Manifiesto(version=version, protocolo=max(PROTOCOLOS_SOPORTADOS), imagenes={arquitectura: archivos},
+                      origen=carpeta.resolve().as_uri())
+
+
 # --- Inventario local ----------------------------------------------------------------------------
 
 

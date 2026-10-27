@@ -12,7 +12,7 @@ from construct.core.setup import preparar
 from construct.platform.host_info import Arquitectura, Sistema
 from tests.conftest import crear_host
 from tests.test_doctor import entorno
-from tests.test_imagenes import publicar
+from tests.test_imagenes import construir, publicar
 
 
 def test_prepara_carpetas_y_baja_la_imagen_de_la_arquitectura_del_host(tmp_path: Path) -> None:
@@ -54,6 +54,14 @@ def test_sin_imagen_no_descarga(tmp_path: Path) -> None:
     assert resultado.imagen is None and resultado.error_imagen is None and not resultado.ok
 
 
+def test_imagen_local_en_lugar_del_manifiesto(tmp_path: Path) -> None:
+    construir(tmp_path / "dist" / "aarch64")
+    e = entorno(crear_host(Sistema.MACOS, Arquitectura.AARCH64))
+    resultado = preparar(e, manifiesto="no-se-usa", imagen_local=tmp_path / "dist")
+    assert resultado.error_imagen is None and resultado.descargada
+    assert resultado.imagen is not None and resultado.imagen.version.startswith("local-")
+
+
 runner = CliRunner()
 
 
@@ -71,6 +79,20 @@ def test_cli_setup_sin_publicacion(tmp_path: Path) -> None:
     salida = runner.invoke(app, ["setup", "--manifiesto", str(tmp_path / "nada.json")])
     assert salida.exit_code == 1
     assert "Imagen del Guest" in salida.output
+
+
+def test_cli_setup_con_imagen_local(tmp_path: Path, construct_home: Path) -> None:
+    construir(tmp_path / "dist" / "x86_64")
+    construir(tmp_path / "dist" / "aarch64")
+    salida = runner.invoke(app, ["setup", "--json", "--imagen", str(tmp_path / "dist")])
+    datos = json.loads(salida.stdout)
+    assert datos["error_imagen"] is None and datos["imagen"]["descargada"] is True
+    assert datos["imagen"]["version"].startswith("local-")
+
+
+def test_cli_setup_imagen_no_se_combina_con_manifiesto(tmp_path: Path) -> None:
+    salida = runner.invoke(app, ["setup", "--imagen", str(tmp_path), "--manifiesto", "x.json"])
+    assert salida.exit_code == 2 and "no se combina" in salida.output
 
 
 @pytest.mark.parametrize("opcion", ["-h", "--help"])
