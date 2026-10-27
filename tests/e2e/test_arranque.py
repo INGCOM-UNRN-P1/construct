@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+from construct.comandos import argv_entrar
 from construct.core.protocolo import PROTOCOLO, Decodificador, Marco, Tipo, codificar
 from construct.platform import accel, binarios, host
 from construct.platform.host_info import Arquitectura
@@ -167,6 +168,29 @@ def test_herramientas_del_perfil(vm: tuple[Conexion, dict[str, Any], float], pro
     conexion, _, _ = vm
     salida, errores, fin = conexion.ejecutar(100 + PROGRAMAS.index(programa), [programa, "--version"])
     assert fin["codigo"] == 0, (salida, errores)
+
+
+COMANDOS_DEL_ENTORNO = ("ayuda", "nuevo-proyecto", "verificar", "entregar", "configure-git.sh",
+                        "customize-terminal.sh", "doctor")
+
+
+def test_entorno_de_la_catedra(vm: tuple[Conexion, dict[str, Any], float]) -> None:
+    """La terminal de `construct entrar`: el entorno de la cátedra activo, como en la máquina del alumno."""
+    conexion, _, _ = vm
+    script = ('printf "raiz=%s home=%s\\n" "$PORTABLE_ROOT" "$(cd ~ && pwd -P)"; '
+              'for c in "$@"; do command -v "$c" >/dev/null || echo "falta $c"; done; '
+              'ripley --version >/dev/null || echo "falta ripley"; ls -a ~')
+    salida, errores, fin = conexion.ejecutar(7, argv_entrar(["sh", "-c", script, "sh", *COMANDOS_DEL_ENTORNO]))
+    assert fin.get("codigo") == 0, (salida, errores)
+    assert "raiz=/opt/p1/entorno home=/home/estudiante" in salida and "falta" not in salida, salida
+    assert {".bashrc", ".bash_profile", ".gdbinit"} <= set(salida.split()), salida
+
+
+def test_bienvenida_del_entorno(vm: tuple[Conexion, dict[str, Any], float]) -> None:
+    conexion, _, _ = vm
+    salida, errores, _ = conexion.ejecutar(8, ["bash", "--login", "-c", "true"])
+    assert "UNRN Andina - Programación 1" in salida and "GUÍA RÁPIDA DEL ENTORNO" in salida, (salida, errores)
+    assert "Entorno Portable activo" not in salida  # el resumen de activate.sh se calla en la VM
 
 
 def test_compilar_con_librerias_de_la_catedra(vm: tuple[Conexion, dict[str, Any], float]) -> None:

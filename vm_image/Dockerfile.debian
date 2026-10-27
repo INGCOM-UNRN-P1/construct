@@ -52,6 +52,7 @@ ARG MOTHER_REF=v0.2.0
 ARG TREADSTONE_REF=03055dd4f767a8c1bcca19539f3337f825aa44ba
 ARG BITMAPS_REF=9cce758d8666469f103a2586bf6f9f0008a1ce6f
 ARG SONIDO_REF=2999852077de6d7060269ba71d117c2afd5a414d
+ARG ENTORNO_REF=add24ac5d235cc657aebfee8bfe6efd43f84daa9
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 
 # Kernel para VM, systemd y lo que necesita el perfil (ecosistema.toml: gcc, gdb, valgrind, bwrap,
@@ -102,6 +103,25 @@ RUN uv tool install "tetsuo[ecosistema] @ git+https://github.com/INGCOM-UNRN-P1/
 
 COPY instalar_librerias.sh /tmp/instalar_librerias.sh
 RUN sh /tmp/instalar_librerias.sh "$TREADSTONE_REF" "$BITMAPS_REF" "$SONIDO_REF" && rm /tmp/instalar_librerias.sh
+
+# El entorno de la cátedra (variante Linux), como lo tiene el alumno en su máquina: comandos
+# (ayuda, nuevo-proyecto, verificar, entregar, configure-git.sh, customize-terminal.sh…), banner de
+# bienvenida y .gdbinit pedagógico. Su HOME portable es el de estudiante, y la configuración inicial
+# la arma su propio `doctor --fix` (sólo crea lo que falta). /etc/profile.d/p1-entorno.sh lo activa.
+# Sin su lanzador de ripley: busca el ripley "nativo" con `command -v` y se encuentra a sí mismo
+# (está primero en el PATH), así que nunca llega al que instaló mother en /usr/local/bin.
+RUN set -eu; \
+    git init -q /opt/p1/entorno; \
+    git -C /opt/p1/entorno fetch -q --depth 1 https://github.com/INGCOM-UNRN-P1/entorno "$ENTORNO_REF"; \
+    git -C /opt/p1/entorno -c advice.detachedHead=false checkout -q FETCH_HEAD; \
+    chmod +x /opt/p1/entorno/linux/bin/* /opt/p1/entorno/linux/*.sh; \
+    rm /opt/p1/entorno/linux/bin/ripley; \
+    ln -s /home/estudiante /opt/p1/entorno/home; \
+    rm -f /home/estudiante/.bashrc /home/estudiante/.profile /home/estudiante/.bash_logout; \
+    su estudiante -c 'PORTABLE_ROOT=/opt/p1/entorno /opt/p1/entorno/linux/bin/doctor --fix' >/dev/null 2>&1 || true; \
+    for f in .bashrc .bash_profile .gdbinit; do \
+        [ -f "/home/estudiante/$f" ] || { echo "falta /home/estudiante/$f del entorno" >&2; exit 1; }; \
+    done
 
 COPY --from=jonesy /jonesy /usr/local/bin/jonesy
 COPY --from=agente /construct_daemon /usr/local/sbin/construct_daemon
