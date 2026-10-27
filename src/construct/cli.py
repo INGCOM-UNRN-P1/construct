@@ -226,6 +226,12 @@ def jonesy(argumentos: list[str] = typer.Argument(None, help="Argumentos para jo
     raise typer.Exit(_correr(comandos.jonesy(argumentos or [])))
 
 
+@app.command("entrar", context_settings={"allow_interspersed_args": False, "ignore_unknown_options": True})
+def entrar(comando: list[str] = typer.Argument(None, help="Comando a correr en lugar de la terminal interactiva.")) -> None:
+    """Abre la terminal del entorno de la cátedra dentro de la VM, como `~/p1/entrar` (salís con `exit`)."""
+    raise typer.Exit(_correr(comandos.entrar(comando or [])))
+
+
 @app.command("sync")
 def sync(
     accion: str = typer.Argument("todo", metavar="[subir|bajar|artefactos|estado]",

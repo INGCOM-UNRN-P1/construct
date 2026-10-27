@@ -287,25 +287,49 @@ def entorno_de_terminal(entorno: Mapping[str, str]) -> dict[str, str]:
             **({"COLORTERM": colores} if colores else {})}
 
 
-async def jonesy(argumentos: Sequence[str]) -> int:
-    """jonesy en la VM con esta terminal en modo crudo; al salir trae lo que se editó allá."""
+async def _pty_en_la_vm(argv: Sequence[str], editado: str) -> int:
+    """`argv` en una pty de la VM con esta terminal en modo crudo; al salir trae lo que se editó allá."""
     terminal = terminal_cruda(host().sistema)  # antes de arrancar nada: sin terminal no tiene sentido
     async with abrir_proyecto() as proyecto:
         filas, columnas = terminal.tamano()
-        proceso = await proyecto.canal.ejecutar(["jonesy", *argumentos], cwd=proyecto.vm, pty=True, filas=filas,
+        proceso = await proyecto.canal.ejecutar(list(argv), cwd=proyecto.vm, pty=True, filas=filas,
                                                 columnas=columnas, env=entorno_de_terminal(os.environ))
         if proceso.error:
             consola.print(f"[bold red]Error:[/bold red] {escape(proceso.error)}")
             return 1
         codigo = await conectar_pty(proceso, terminal)
-        traidos, conflictos = await proyecto.sync.bajar()
+        traidos, conflictos = await proyecto.sync.bajar(nuevos=True)
     if conflictos:
-        consola.print("[bold yellow]Lo que editaste en jonesy choca con cambios tuyos en:[/bold yellow] "
+        consola.print(f"[bold yellow]Lo que editaste en {editado} choca con cambios tuyos en:[/bold yellow] "
                       + ", ".join(conflictos) + ". Resolvelos y ejecutá `construct sync`.")
         return 1
     if traidos:
-        consola.print("[green]✓[/green] Cambios de jonesy incorporados a tus archivos.")
+        consola.print(f"[green]✓[/green] Cambios de {editado} incorporados a tus archivos.")
     return codigo
+
+
+async def jonesy(argumentos: Sequence[str]) -> int:
+    """jonesy en la VM con esta terminal en modo crudo; al salir trae lo que se editó allá."""
+    return await _pty_en_la_vm(["jonesy", *argumentos], "jonesy")
+
+
+PERFIL_ENTORNO = "/etc/profile.d/p1-entorno.sh"
+"""Activa en la VM el entorno de la cátedra (INGCOM-UNRN-P1/entorno) para estudiante."""
+
+
+def argv_entrar(comando: Sequence[str]) -> list[str]:
+    """Sin comando, un Bash de login con la bienvenida del entorno; con comando, sólo su PATH y variables.
+
+    Es lo mismo que `~/p1/entrar` y `~/p1/entrar <comando…>` del entorno en Linux y macOS.
+    """
+    if not comando:
+        return ["bash", "--login", "-i"]
+    return ["bash", "-c", f'. {PERFIL_ENTORNO}; exec "$@"', "entrar", *comando]
+
+
+async def entrar(comando: Sequence[str]) -> int:
+    """La terminal del entorno de la cátedra dentro de la VM, en la carpeta del proyecto."""
+    return await _pty_en_la_vm(argv_entrar(comando), "la terminal de la VM")
 
 
 # --- Modo desarrollo (PLAN §3.4) --------------------------------------------------------------

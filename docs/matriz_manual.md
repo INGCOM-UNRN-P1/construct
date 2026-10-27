@@ -68,7 +68,7 @@ Recorrido del checkpoint: editar → `F7` → `F8` → `F6` → `F5` → crash c
 | 4.13 | `Ctrl+S` guarda, sincroniza y audita; con conflicto se abre el modal para elegir versión | |
 | 4.14 | Teclas que **no** llegan en esta terminal (anotarlas: son las que necesitan alternativa) | |
 
-## jonesy (Fase 5)
+## jonesy y la terminal del entorno (Fase 5)
 
 | # | Paso | Resultado |
 | :--- | :--- | :--- |
@@ -77,6 +77,9 @@ Recorrido del checkpoint: editar → `F7` → `F8` → `F6` → `F5` → crash c
 | 5.3 | Editar, guardar (`Ctrl+S` en jonesy) y salir (`Ctrl+Q`): el cambio está en el archivo del Host | |
 | 5.4 | Después de salir la terminal queda normal (eco, `Ctrl+C`, flechas) | |
 | 5.5 | Cerrar la VM a mitad (`construct vm stop` desde otra terminal): la terminal queda normal igual | |
+| 5.6 | `construct entrar`: bienvenida del entorno, `ayuda`, prompt `(p1)` y colores | |
+| 5.7 | En esa terminal, `nuevo-proyecto prueba`, `exit`: la carpeta `prueba/` aparece en el Host | |
+| 5.8 | `customize-terminal.sh` cambia el banner y el prompt; se mantienen al volver a entrar | |
 
 ## Casos especiales de este sistema (PLAN §5.2)
 

@@ -104,6 +104,7 @@ construct test              # F6: suites de treadstone (tests/test_*.c)
 construct sync              # sube, baja con fusión de 3 vías y trae artefactos (.bmp, .wav, …)
 construct sync estado       # también subir, bajar y artefactos
 construct jonesy [archivo]  # jonesy, el IDE de terminal de la cátedra, dentro de la VM
+construct entrar [CMD]      # la terminal del entorno de la cátedra dentro de la VM (como ~/p1/entrar)
 construct vm start|stop|status
 construct vm exec -- CMD    # un comando dentro de la VM (diagnóstico)
 ```
@@ -115,6 +116,15 @@ archivos sin `fclose` y memoria sin liberar, con su línea. Los artefactos queda
 `construct jonesy` conecta tu terminal directo con jonesy en la VM (con colores, mouse y el tamaño
 de la ventana); al salir, lo que guardaste allá vuelve a tus archivos. En Windows necesita Windows
 Terminal o la consola de Windows 10 1809 en adelante.
+
+`construct entrar` abre, de la misma forma, una terminal dentro de la VM en la carpeta de tu
+proyecto, con el [entorno de la cátedra](https://github.com/INGCOM-UNRN-P1/entorno) igual que en tu
+máquina: la bienvenida con `ayuda`, el prompt `(p1)` y sus comandos (`nuevo-proyecto`, `verificar`,
+`entregar`, `configure-git.sh`, `customize-terminal.sh`, `doctor`…), con el `.gdbinit` de la cátedra.
+Con `exit` volvés, y lo que cambiaste o creaste allá (los archivos de texto, no lo compilado ni lo
+que ignora tu `.gitignore`) se trae a tu carpeta. `construct entrar ayuda` corre un solo comando del
+entorno y vuelve. La VM no tiene red, así que lo que necesita internet (`clonar`, `gh`,
+`update-env.sh`, `install-lib.sh` desde GitHub) se hace en tu máquina.
 
 ### El IDE: `construct ui`
 
@@ -230,6 +240,7 @@ Ver [`AGENTS.md`](AGENTS.md) para las convenciones de trabajo y [`PLAN.md`](PLAN
 | `construct run` | Ejecuta el programa en la VM conectado a esta terminal (F5); si falla con una señal, lo explica hal. |
 | `construct test` | Compila y corre las pruebas de treadstone (tests/test_*.c) con tu código (F6). |
 | `construct jonesy` | Abre jonesy, el IDE de terminal de la cátedra, dentro de la VM y en esta terminal (RF-05). |
+| `construct entrar` | Abre la terminal del entorno de la cátedra dentro de la VM, como `~/p1/entrar` (salís con `exit`). |
 | `construct sync` | Sincroniza tu carpeta con la VM (único responsable de mover archivos entre los dos). |
 | `construct setup` | Prepara el Host: carpetas, diagnóstico con instrucciones y descarga de la imagen del Guest. |
 | `construct vm` | Máquina virtual: arrancarla, apagarla, ver su estado o ejecutar algo adentro. |

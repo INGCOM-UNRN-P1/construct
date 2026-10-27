@@ -46,6 +46,10 @@ versiones según [SemVer](https://semver.org/lang/es/).
 - **bridge**: suites de integración del perfil estudiante y de artefactos contra la VM real.
 - **ci**: integración con KVM y arranque en TCG en Windows y macOS.
 - **docs**: instalación por sistema en el README y la matriz manual de verificación.
+- **vm-image**: el entorno de la cátedra (`INGCOM-UNRN-P1/entorno`, variante Linux) en la VM: comandos,
+  bienvenida con `ayuda`, prompt `(p1)` y `.gdbinit`, con la configuración inicial de su `doctor --fix`.
+- **cli**: `construct entrar [comando]`, la terminal de ese entorno en la VM, como `~/p1/entrar`.
+- **sync**: al salir de `construct entrar` o de jonesy también vuelven los archivos de texto creados en la VM.
 - **setup**: `construct setup --imagen CARPETA` instala una imagen construida con `build_vm.sh` sin
   bajarla ni armar un release.
 
