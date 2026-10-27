@@ -28,6 +28,8 @@ from construct.platform.host_info import Arquitectura
 
 IMAGEN = os.environ.get("CONSTRUCT_IMAGEN_PRUEBA")
 FACTOR_TCG = 6
+LATIDO_S = 30
+"""El agente corta la sesión (y apaga la VM) tras 3 × LATIDO_S sin nada del Host, como en una sesión real."""
 
 pytestmark = pytest.mark.skipif(not IMAGEN, reason="definí CONSTRUCT_IMAGEN_PRUEBA con la carpeta de la imagen")
 
@@ -40,15 +42,27 @@ class Conexion:
         self.factor = factor  # con TCG todo tarda varias veces más
         self.decodificador = Decodificador()
         self.pendientes: list[Marco] = []
+        self.ultimo_envio = time.monotonic()
+        self.latidos = False  # recién después de la BIENVENIDA
 
     def enviar(self, tipo: Tipo, id: int = 0, datos: bytes | dict[str, Any] = b"") -> None:
         self.sock.sendall(codificar(tipo, id, datos))
+        self.ultimo_envio = time.monotonic()
 
     def recibir(self, timeout: float) -> Marco:
+        """Espera un marco mandando latidos mientras tanto: bajo TCG, `mother doctor` dura minutos."""
         limite = time.monotonic() + timeout * self.factor
         while not self.pendientes:
-            self.sock.settimeout(max(0.01, limite - time.monotonic()))
-            datos = self.sock.recv(65536)
+            ahora = time.monotonic()
+            if ahora >= limite:
+                raise TimeoutError(f"sin respuesta del agente en {timeout * self.factor:.0f} s")
+            if self.latidos and ahora - self.ultimo_envio >= LATIDO_S / 3:
+                self.enviar(Tipo.LATIDO)
+            self.sock.settimeout(max(0.01, min(limite, self.ultimo_envio + LATIDO_S / 3) - ahora))
+            try:
+                datos = self.sock.recv(65536)
+            except TimeoutError:
+                continue
             if not datos:
                 raise ConnectionError("QEMU cerró el canal")
             self.pendientes += self.decodificador.alimentar(datos)
@@ -103,7 +117,8 @@ def vm(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Conexion, dic
         demora = time.monotonic() - inicio
         datos = hola.json()
         assert hola.tipo is Tipo.HOLA and datos["token"] == token, datos
-        conexion.enviar(Tipo.BIENVENIDA, 0, {"protocolo": PROTOCOLO, "latido_s": 30})
+        conexion.enviar(Tipo.BIENVENIDA, 0, {"protocolo": PROTOCOLO, "latido_s": LATIDO_S})
+        conexion.latidos = True
         print(f"\nacelerador: {elegida.acelerador.value}; HOLA a los {demora:.2f} s; {datos}")
         yield conexion, datos, demora
         conexion.enviar(Tipo.APAGAR)
