@@ -236,6 +236,36 @@ def test_subir_bajar_y_artefactos(agente_compilado: Path, tmp_path: Path) -> Non
     correr(prueba)
 
 
+def test_bajar_con_nuevos_trae_lo_creado_en_una_sesion(agente_compilado: Path, tmp_path: Path) -> None:
+    async def prueba() -> None:
+        async with sincronizador(agente_compilado, tmp_path) as (gestor, proyecto, vm):
+            (proyecto / "main.c").write_text("int main(void) { return 0; }\n")
+            (proyecto / ".gitignore").write_text("build/\n")
+            await gestor.subir()
+            # Lo que deja una terminal en la VM: nuevo-proyecto, un archivo a mano y lo compilado.
+            (vm / "saludo" / "tests").mkdir(parents=True)
+            (vm / "saludo" / "main.c").write_text("int main(void) { return 0; }\n")
+            (vm / "saludo" / "tests" / "caso_01.in").write_text("\n\n")
+            (vm / "extra.c").write_text("int doble(int x) { return 2 * x; }\n")
+            (vm / "saludo" / "saludo").write_bytes(b"\x7fELF\x02\x01\x01\x00\x00\x00")
+            (vm / "build").mkdir()
+            (vm / "build" / "notas.txt").write_text("ignorado por .gitignore\n")
+            (vm / "salida.html").write_text("<html></html>\n")  # artefacto
+            (vm / "vacio.txt").write_text("")  # p. ej. un caso de prueba sin entrada
+            (vm / "aux.c").write_text("int aux;\n")  # nombre reservado en Windows
+
+            assert await gestor.bajar() == (False, [])  # sin `nuevos`, como después de build o fix
+            assert not (proyecto / "extra.c").exists()
+            assert await gestor.bajar(nuevos=True) == (True, [])
+            traidos = sorted(p.relative_to(proyecto).as_posix() for p in proyecto.rglob("*")
+                             if p.is_file() and ".git" not in p.parts and ".construct" not in p.parts)
+            assert traidos == [".gitignore", "extra.c", "main.c", "saludo/main.c", "saludo/tests/caso_01.in",
+                               "vacio.txt"]
+            assert await gestor.bajar(nuevos=True) == (False, [])  # ya están: nada más que traer
+
+    correr(prueba)
+
+
 def test_conflicto_de_tres_vias(agente_compilado: Path, tmp_path: Path) -> None:
     async def prueba() -> None:
         async with sincronizador(agente_compilado, tmp_path) as (gestor, proyecto, vm):

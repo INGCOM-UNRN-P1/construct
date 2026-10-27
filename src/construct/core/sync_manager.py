@@ -234,6 +234,22 @@ class SyncManager:
         sucio = await self._git_vm("status", "--porcelain", "--untracked-files=no")
         return bool(sucio) or await self._head_vm() != self.repo.ref(REF_VM)
 
+    async def _nuevos_en_vm(self) -> list[str]:
+        """Archivos que se crearon en la VM y vale la pena traer: de texto, fuera de `.gitignore`,
+        que no sean artefactos (esos van a `.construct/artefactos/`) y con nombres que anden en
+        cualquier sistema. Los binarios (lo compilado) y el resto se quedan en la VM."""
+        sueltos = [r for r in (await self._git_vm("ls-files", "-z", "--others", "--exclude-standard")).split("\0")
+                   if r and not es_artefacto(r)]
+        if not sueltos:
+            return []
+        # grep -I descarta los binarios; los vacíos se traen igual (p. ej. un caso de prueba sin entrada).
+        script = ('cd "$1" && shift && for f; do { [ ! -s "$f" ] || grep -Iq "" -- "$f"; } && printf "%s\\0" "$f"; '
+                  'done; true')
+        texto = (await self.canal.correr(["sh", "-c", script, "sh", self.vm, *sueltos])).texto()
+        candidatos = [r for r in texto.split("\0") if r]
+        con_problemas = {r for r in candidatos if problemas_de_nombres([r])}
+        return [r for r in candidatos if r not in con_problemas]
+
     def _bundle(self, base: str | None) -> bytes:
         with tempfile.TemporaryDirectory() as carpeta:
             archivo = Path(carpeta) / "subir.bundle"
@@ -271,11 +287,20 @@ class SyncManager:
         self.repo.correr("update-ref", REF_VM, local)
         return True
 
-    async def bajar(self) -> tuple[bool, list[str]]:
-        """Trae los cambios de la VM y los fusiona; (si trajo algo, archivos en conflicto)."""
+    async def bajar(self, *, nuevos: bool = False) -> tuple[bool, list[str]]:
+        """Trae los cambios de la VM y los fusiona; (si trajo algo, archivos en conflicto).
+
+        Sólo los archivos que ya estaban en el proyecto, salvo con `nuevos`: después de una sesión
+        interactiva (`construct entrar`, jonesy) también los que se crearon allá (`_nuevos_en_vm`).
+        """
         self.repo.inicializar()
-        if not await self._existe_en_vm() or not await self._vm_tiene_cambios():
+        if not await self._existe_en_vm():
             return False, []
+        agregados = await self._nuevos_en_vm() if nuevos else []
+        if not agregados and not await self._vm_tiene_cambios():
+            return False, []
+        if agregados:
+            await self._git_vm("add", "--", *agregados)
         await self._git_vm("add", "-u")
         if (await self.canal.correr(["git", "-C", self.vm, "diff", "--cached", "--quiet"])).codigo != 0:
             await self._git_vm("commit", "-q", "--no-verify", "-m", "construct: cambios de la VM")
