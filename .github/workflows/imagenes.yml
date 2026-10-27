@@ -61,11 +61,58 @@ jobs:
           uv run construct doctor || true
           uv run pytest tests/e2e -v -s
 
+      # PLAN §5.1 e2e-kvm: el perfil estudiante de punta a punta por el orquestador del IDE.
+      - name: Integración del perfil estudiante y artefactos
+        env:
+          CONSTRUCT_IMAGEN_PRUEBA: dist/imagenes/${{ matrix.arch }}
+        run: uv run pytest tests/test_student_tools_ide.py tests/test_media_artifacts.py -v
+
       - uses: actions/upload-artifact@v4
         with:
           name: imagen-${{ matrix.arch }}
           path: dist/imagenes/${{ matrix.arch }}
           retention-days: 7
+
+  # PLAN §5.1 e2e-tcg: los runners alojados de Windows y macOS no exponen WHPX ni HVF, así que la
+  # imagen corre emulada (TCG). Es un smoke test de arranque, handshake y herramientas, con tiempos
+  # amplios; la aceleración real se verifica en la matriz manual (docs/matriz_manual.md).
+  e2e-tcg:
+    name: Arranque en TCG (${{ matrix.os }})
+    needs: construir
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            arch: x86_64
+          - os: macos-15
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: imagen-${{ matrix.arch }}
+          path: dist/imagenes/${{ matrix.arch }}
+      - name: Instalar QEMU (Windows)
+        if: runner.os == 'Windows'
+        run: choco install qemu -y --no-progress
+      - name: Instalar QEMU (macOS)
+        if: runner.os == 'macOS'
+        run: brew install qemu
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Arrancar la imagen
+        env:
+          CONSTRUCT_IMAGEN_PRUEBA: dist/imagenes/${{ matrix.arch }}
+        run: |
+          uv sync
+          uv run construct doctor || true   # sin WHPX/HVF el diagnóstico avisa que falta la aceleración
+          uv run pytest tests/e2e -v -s
 
   publicar:
     name: Publicar release
