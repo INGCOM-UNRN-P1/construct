@@ -94,7 +94,7 @@ async def tetsuo(proyecto: Proyecto, binario: str, entrada: bytes) -> Lectura:
     """Falla con hallazgos o si tetsuo dice que no pasó (aunque no haya podido leer a los sanitizers)."""
     resultado = await proyecto.correr(puente.argv_tetsuo(f"./{binario}", entrada.decode(errors="replace")))
     leida, crudo = _leer(resultado, proyecto.vm)
-    paso = leida.datos.get("ok", leida.datos.get("passed", True)) is not False
+    paso = bool(leida.datos) and crudo is None and leida.datos.get("ok", leida.datos.get("passed", True)) is not False
     return Lectura(paso and not leida.hallazgos, leida.hallazgos, leida.datos, crudo, resultado.codigo)
 
 

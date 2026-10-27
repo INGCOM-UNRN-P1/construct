@@ -54,7 +54,7 @@ printf '{"tipo_senal": "SIGSEGV", "archivo": "main.c", "linea": 5, "entrada": "%
 
 # tetsuo run … --json como lo devuelve cuando no pudo leer a los sanitizers (sin hallazgos, ok: false).
 TETSUO = r"""#!/bin/sh
-echo '{"ok": false, "passed": false, "hallazgos": [], "raw_output": "\n"}'
+printf '{"ok": false, "passed": false, "hallazgos": [], "raw_output": "\\n"}\n'
 """
 
 ECO = """#include <stdio.h>
