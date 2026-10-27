@@ -27,14 +27,17 @@ from construct.platform import accel, binarios, host
 from construct.platform.host_info import Arquitectura
 
 IMAGEN = os.environ.get("CONSTRUCT_IMAGEN_PRUEBA")
+FACTOR_TCG = 6
+
 pytestmark = pytest.mark.skipif(not IMAGEN, reason="definí CONSTRUCT_IMAGEN_PRUEBA con la carpeta de la imagen")
 
 CONSOLA = {Arquitectura.X86_64: "ttyS0", Arquitectura.AARCH64: "ttyAMA0"}
 
 
 class Conexion:
-    def __init__(self, sock: socket.socket) -> None:
+    def __init__(self, sock: socket.socket, factor: float = 1) -> None:
         self.sock = sock
+        self.factor = factor  # con TCG todo tarda varias veces más
         self.decodificador = Decodificador()
         self.pendientes: list[Marco] = []
 
@@ -42,7 +45,7 @@ class Conexion:
         self.sock.sendall(codificar(tipo, id, datos))
 
     def recibir(self, timeout: float) -> Marco:
-        limite = time.monotonic() + timeout
+        limite = time.monotonic() + timeout * self.factor
         while not self.pendientes:
             self.sock.settimeout(max(0.01, limite - time.monotonic()))
             datos = self.sock.recv(65536)
@@ -76,7 +79,8 @@ def vm(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Conexion, dic
     registro = tmp_path_factory.mktemp("vm") / "consola.log"
 
     servidor = socket.create_server(("127.0.0.1", 0))
-    servidor.settimeout(120)
+    factor = FACTOR_TCG if elegida.compatibilidad else 1  # runners de CI sin WHPX/HVF (PLAN §5.1 e2e-tcg)
+    servidor.settimeout(120 * factor)
     puerto = servidor.getsockname()[1]
     comando = [
         qemu.ruta, *elegida.argumentos_qemu(), "-m", "1024", "-smp", "2",
@@ -94,7 +98,7 @@ def vm(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Conexion, dic
     proceso = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         sock, _ = servidor.accept()
-        conexion = Conexion(sock)
+        conexion = Conexion(sock, factor)
         hola = conexion.recibir(timeout=120)
         demora = time.monotonic() - inicio
         datos = hola.json()
@@ -103,7 +107,7 @@ def vm(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Conexion, dic
         print(f"\nacelerador: {elegida.acelerador.value}; HOLA a los {demora:.2f} s; {datos}")
         yield conexion, datos, demora
         conexion.enviar(Tipo.APAGAR)
-        proceso.wait(timeout=60)
+        proceso.wait(timeout=60 * factor)
     except BaseException:
         print(registro.read_text(errors="replace")[-4000:] if registro.exists() else "(sin consola)")
         raise
