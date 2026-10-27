@@ -222,7 +222,7 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   5. `construct setup`: descarga la imagen correspondiente a la arquitectura desde un manifiesto publicado (`imagenes.json` en el release de GitHub, con `sha256` por archivo y versión de protocolo; ver `core/imagenes.py`) y, si falta QEMU, imprime el comando exacto (`winget install`, `brew install qemu`, `apt`/`dnf`/`pacman`). No instala nada con privilegios por su cuenta. Los discos de trabajo se crean en la Fase 3, junto con `vm_manager`.
   6. `tests/test_cli_contract.py` y `tests/platform/` con pruebas unitarias de cada implementación usando *fakes* (p. ej. simular `/dev/kvm` ausente, `WinHvPlatform.dll` inexistente, Rosetta).
 * **Checkpoint:** `uv run pytest` en verde en Linux, Windows y macOS (CI, §5); `construct doctor --json` válido en las tres.
-* **Estado (26/10/2026):** implementada. Verificada en Linux (Fedora 44, KVM); falta correr el CI en Windows y macOS al publicar el repositorio. El encadenado con `mother doctor --json` del Guest se hizo en la Fase 3.
+* **Estado (26/10/2026):** implementada. Verificada en Linux (Fedora 44, KVM); el CI pasa en Linux, Windows y macOS desde el push del 27/10/2026. El encadenado con `mother doctor --json` del Guest se hizo en la Fase 3.
 
 ### Fase 2: Imagen de Máquina Virtual Multiarquitectura y Agente Guest
 
@@ -286,6 +286,19 @@ Pensado para quienes desarrollan `construct` y los satélites, no para estudiant
   3. README con la instalación en tres bloques y la referencia generada por `p1-tools/scripts/readme_generado.py`.
   4. `construct` registrado en `p1-tools/ecosistema.toml` (perfil `estudiante`). Como `mother` no tiene cómo excluir herramientas, la imagen desinstala construct del Guest y el doctor encadenado ignora su chequeo.
   5. `revision/docs/construct.md` generado con `revision/evidencia/generar_docs.py`.
+* **Después del push (27/10/2026):** `construct` y `p1-tools` están publicados y el workflow `CI` está en verde en Linux, Windows y macOS (Python 3.12 y 3.13, lint y tipos). `imagenes.yml` sólo corre con un tag `imagen-v*`, un PR que toque `vm_image/` o a mano, así que todavía no corrió nunca. Siguientes pasos, en orden:
+  1. **Primera corrida de `imagenes.yml`** (`gh workflow run imagenes.yml`): construye la imagen `aarch64` por primera vez en el runner ARM y corre `e2e-kvm`, con las suites de integración, y `e2e-tcg` en Windows y macOS. Lo que falle se corrige antes de publicar.
+  2. **Publicar la imagen Debian:** subir `IMAGEN_VERSION` a `0.2.0` en `core/imagenes.py` y empujar el tag `imagen-v0.2.0`, que construye y publica el release con su `imagenes.json`. Hasta entonces `construct setup` baja la `v0.1.0`, que es Alpine y no tiene ASan. Después, comprobar `construct setup` y `construct doctor` desde cero en una máquina limpia.
+  3. **Manifiesto de `mother`:** actualizar la copia de `ecosistema.toml` que trae `mother`, que no coincide con la de `p1-tools` y además no tiene `construct`, hasta que `ecosistema.py verificar` dé verde.
+  4. **Matriz manual** ([`docs/matriz_manual.md`](docs/matriz_manual.md)) en Windows, macOS y las seis terminales. Con eso se cierran los checkpoints que siguen abiertos en las Fases 1 y 3 a 5. Las teclas que no lleguen (punto 4.14) se resuelven con alternativas en `ui/keymap.py`.
+  5. **Issues en los satélites:**
+     * `bitmaps`: los píxeles se guardan en RGB y el formato BMP es BGR.
+     * `nostromo`/`tetsuo`: bajo el sandbox se pierde el informe de ASan.
+     * `mother`: no hay forma de excluir una herramienta de un perfil.
+
+     Cuando se arreglen, los *xfail* estrictos van a fallar y ahí se sacan. Si `mother` permite excluir `construct`, se quitan también la desinstalación de `vm_image/Dockerfile.debian` y el filtro de `chequeos_del_guest`.
+  6. **Fijar las versiones del Guest:** cuando `ecosistema.toml` fije la matriz del cuatrimestre, la imagen deja de instalar las herramientas desde la rama principal de cada repo y se publica una imagen nueva.
+  7. **`revision`:** commitear `docs/construct.md` y la fila del índice, que quedaron sin seguimiento junto con el generador.
 
 ---
 
