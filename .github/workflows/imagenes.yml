@@ -61,11 +61,18 @@ jobs:
           uv run construct doctor || true
           uv run pytest tests/e2e -v -s
 
-      # PLAN §5.1 e2e-kvm: el perfil estudiante de punta a punta por el orquestador del IDE.
+      # PLAN §5.1 e2e-kvm: el perfil estudiante de punta a punta por el orquestador del IDE. Sólo con
+      # KVM: el runner ARM no lo expone y en TCG cada compilación con ASan tarda minutos (el arranque
+      # de arriba ya prueba la imagen aarch64).
       - name: Integración del perfil estudiante y artefactos
         env:
           CONSTRUCT_IMAGEN_PRUEBA: dist/imagenes/${{ matrix.arch }}
-        run: uv run pytest tests/test_student_tools_ide.py tests/test_media_artifacts.py -v
+        run: |
+          if [ -e /dev/kvm ]; then
+            uv run pytest tests/test_student_tools_ide.py tests/test_media_artifacts.py -v
+          else
+            echo "::notice::sin KVM en este runner: la integración del perfil corre sólo en x86_64"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
