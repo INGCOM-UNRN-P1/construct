@@ -34,8 +34,9 @@ class ParametrosVM:
 
 
 def escapar(valor: str | Path) -> str:
-    """Valor de una opción de QEMU: las comas se duplican (`a,b` → `a,,b`)."""
-    return str(valor).replace(",", ",,")
+    """Valor de una opción de QEMU: las comas se duplican (`a,b` → `a,,b`) y las barras son `/`."""
+    texto = valor.as_posix() if isinstance(valor, Path) else str(valor).replace("\\", "/")
+    return texto.replace(",", ",,")
 
 
 def argumentos(p: ParametrosVM) -> list[str]:

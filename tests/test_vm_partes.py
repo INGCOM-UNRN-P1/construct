@@ -35,6 +35,7 @@ def test_linea_de_qemu() -> None:
     assert "virtserialport,chardev=ctl,name=construct-ctl" in argv
     assert "file=/datos/a,,b/workspace.qcow2,if=virtio,format=qcow2,discard=unmap" in argv  # comas escapadas
     assert "console=ttyS0" in texto and "-nic none" in texto
+    assert qemu.escapar(r"C:\datos\a,b\disco.qcow2") == "C:/datos/a,,b/disco.qcow2"
 
 
 def test_linea_de_qemu_en_apple_silicon() -> None:
