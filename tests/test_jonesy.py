@@ -6,6 +6,7 @@ import asyncio
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -109,7 +110,14 @@ def test_entrar_sin_comando_es_un_bash_de_login() -> None:
     assert comandos.argv_entrar([]) == ["bash", "--login", "-i"]
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="hace falta bash")
+def test_entrar_con_comando_arma_el_argv() -> None:
+    assert comandos.argv_entrar(["gcc", "main.c"]) == [
+        "bash", "-c", f'. {comandos.PERFIL_ENTORNO}; exec "$@"', "entrar", "gcc", "main.c"
+    ]
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,
+                    reason="hace falta bash en un entorno POSIX")
 def test_entrar_con_comando_carga_el_entorno_y_respeta_los_argumentos(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "perfil.sh").write_text('export P1_PRUEBA="activo"\n', encoding="utf-8")
