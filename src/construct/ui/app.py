@@ -494,9 +494,10 @@ class ConstructApp(App[None]):
                 self.query_one(RegistrosView).mostrar(None)
                 fin = f"señal {senal}" if senal else (f"código {codigo}" if codigo is not None else "detenida")
                 self._consola(f"[yellow]— depuración terminada ({fin})[/yellow]")
-            case ev.MemoriaBishop(datos):
+            case ev.MemoriaBishop(datos, en_vivo):
                 self.query_one(BishopView).mostrar(datos)
-                self.query_one("#q2", TabbedContent).active = "tab-bishop"
+                if not en_vivo:  # en cada paso se actualiza sin sacar al alumno de la pestaña que mira
+                    self.query_one("#q2", TabbedContent).active = "tab-bishop"
         self._actualizar_estado()
 
     def _artefacto(self, ruta: Path) -> None:

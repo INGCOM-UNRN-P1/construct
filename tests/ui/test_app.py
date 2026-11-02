@@ -281,3 +281,31 @@ def test_marca_de_antipatron_con_el_nombre_que_usa_ripley(tmp_path: Path) -> Non
         assert "(spunkmeyer: 0x4006h)" in str(app.query_one(HallazgosView).query_one("OptionList").get_option_at_index(0).prompt)
 
     probar(tmp_path, guion, escena)
+
+
+def test_dibujar_memoria_en_vivo_con_numeros_lineas_y_eventos() -> None:
+    from rich.console import Console
+
+    from construct.core import tool_bridge as puente
+
+    # La foto de `bishop-memoria` en una parada: bloques numerados por bishop, con su línea, y lo
+    # que pasó con el heap desde la parada anterior (Ola 42).
+    datos = puente.memoria_en_vivo({
+        "frames": [{"funcion": "main", "linea_actual": 16, "variables": [
+            {"nombre": "lista", "tipo": "nodo_t *", "valor": "0xb0", "es_puntero": True, "direccion_apuntada": "0xb0"}]}],
+        "heap": [{"id": 2, "direccion": "0xb0", "tamanio_bytes": 16, "tipo": "struct nodo", "contenido": "{dato=1, sig=0xa0}",
+                  "sitio": {"archivo": "/vm/tp/main.c", "linea": 9}, "punteros_salientes": [{"campo": "sig", "destino": "0xa0"}]},
+                 {"id": 1, "direccion": "0xa0", "tamanio_bytes": 16, "tipo": "struct nodo", "contenido": "{dato=0, sig=NULL}",
+                  "sitio": {"archivo": "/vm/tp/main.c", "linea": 9}, "punteros_salientes": []},
+                 {"id": 3, "direccion": "0xc0", "tamanio_bytes": 4, "contenido": "", "alcanzable": False,
+                  "sitio": {"archivo": "/vm/tp/main.c", "linea": 14}, "punteros_salientes": []}],
+        "eventos": [{"tipo": "malloc", "id": 3, "tamanio": 4, "sitio": {"archivo": "/vm/tp/main.c", "linea": 14}},
+                    {"tipo": "free", "id": 1, "doble": True, "sitio": {"archivo": "/vm/tp/main.c", "linea": 15}}]})
+    assert datos["fugas_detectadas"] == 1 and datos["total_bytes_heap_activos"] == 36
+    consola = Console(width=140, record=True)
+    consola.print(dibujar_memoria(datos))
+    texto = consola.export_text()
+    assert "0xb0 ──▶ #2" in texto and "sig ──▶ #1" in texto
+    assert "main.c:9" in texto and "main.c:14" in texto
+    assert texto.count("sin referencias (fuga)") == 1
+    assert "malloc(4) → #3 en main.c:14" in texto and "⚠ free doble de #1 en main.c:15" in texto

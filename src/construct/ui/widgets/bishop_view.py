@@ -1,8 +1,10 @@
 """Memoria con bishop y registros de la depuración (SPEC §5 cuadrante 2, `bishop` View).
 
-`dibujar_memoria` arma, con el snapshot de `bishop snapshot --json`, las cajas de cada frame del
-Stack (variable, tipo y valor; los punteros con una flecha al bloque del Heap que apuntan) y los
-bloques del Heap con su tamaño, contenido y si quedaron liberados o sin liberar.
+`dibujar_memoria` arma, con el snapshot de `bishop snapshot --json` o el de cada parada de la
+depuración (`bishop-memoria`, Ola 42), las cajas de cada frame del Stack (variable, tipo y valor;
+los punteros con una flecha al bloque del Heap que apuntan) y los bloques del Heap con su tamaño,
+contenido, la línea que los pidió y si quedaron liberados o sin liberar. En vivo, además, lo que
+pasó con el heap desde la parada anterior.
 """
 
 from __future__ import annotations
@@ -33,7 +35,8 @@ def _campo(datos: Mapping[str, Any], *claves: str, defecto: Any = None) -> Any:
 
 def dibujar_memoria(datos: Mapping[str, Any]) -> RenderableType:
     heap = [b for b in _campo(datos, "heap", defecto=[]) if isinstance(b, dict)]
-    numeros = {str(_campo(b, "direccion", "address")): i for i, b in enumerate(heap, 1)}
+    # En vivo bishop numera cada bloque por orden de reserva (#1, #2…); si no, por orden de aparición.
+    numeros = {str(_campo(b, "direccion", "address")): _campo(b, "id", defecto=i) for i, b in enumerate(heap, 1)}
 
     def destino(direccion: Any) -> str:
         numero = numeros.get(str(direccion))
@@ -76,7 +79,10 @@ def dibujar_memoria(datos: Mapping[str, Any]) -> RenderableType:
                 "activo" if referencias else "[bold red]sin referencias (fuga)[/bold red]")
             contenido = str(_campo(b, "contenido", "preview", defecto=""))
             contenido = escape(contenido if len(contenido) <= MAX_CONTENIDO else contenido[:MAX_CONTENIDO - 1] + "…")
-            tabla.add_row(str(i), escape(f"<{_campo(b, 'direccion', 'address')}> {_campo(b, 'tipo', defecto='')}"),
+            sitio = _campo(b, "sitio", defecto={})
+            pedido = f"\n[dim]{escape(_lugar(sitio))}[/dim]" if isinstance(sitio, dict) and sitio.get("linea") else ""
+            tabla.add_row(str(_campo(b, "id", defecto=i)),
+                          escape(f"<{_campo(b, 'direccion', 'address')}> {_campo(b, 'tipo', defecto='')}") + pedido,
                           str(_campo(b, "tamanio_bytes", "size", defecto="?")),
                           contenido + (f"\n[cyan]{escape(salientes)}[/cyan]" if salientes else ""), estado)
         partes.append(tabla)
@@ -87,7 +93,40 @@ def dibujar_memoria(datos: Mapping[str, Any]) -> RenderableType:
     activos = _campo(datos, "total_bytes_heap_activos", defecto=None)
     resumen = f"{len(heap)} bloque(s)" + (f", {activos} bytes activos" if activos is not None else "")
     partes.append(Text(resumen + (f", {fugas} fuga(s)" if fugas else ""), style="bold red" if fugas else "dim"))
+    eventos = [e for e in _campo(datos, "eventos", defecto=[]) if isinstance(e, dict)]
+    if eventos:
+        texto = Text("Desde la parada anterior\n", style="bold")
+        for e in eventos:
+            linea, estilo = _evento(e)
+            texto.append(f"  {linea}\n", style=estilo)
+        partes.append(texto)
     return Group(*partes)
+
+
+def _lugar(sitio: Mapping[str, Any]) -> str:
+    archivo = str(sitio.get("archivo") or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return f"{archivo}:{sitio.get('linea')}"
+
+
+def _evento(e: Mapping[str, Any]) -> tuple[str, str]:
+    """Un malloc, free o realloc de bishop-memoria, como lo muestra la vista de memoria de jonesy."""
+    sitio = e.get("sitio")
+    donde = f" en {_lugar(sitio)}" if isinstance(sitio, dict) and sitio.get("linea") else ""
+    numero = f"#{e['id']}" if e.get("id") is not None else ""
+    tipo = str(e.get("tipo", "?"))
+    if tipo == "free":
+        if e.get("doble"):
+            return f"⚠ free doble de {numero}{donde}: ese bloque ya se había liberado", "bold red"
+        if e.get("desconocido"):
+            return f"⚠ free de un puntero que no viene de malloc{donde}", "bold red"
+        if e.get("nulo"):
+            return f"free(NULL){donde}: no hace nada", "dim"
+        return f"free({numero}){donde}", "dim"
+    if e.get("falla"):
+        return f"⚠ {tipo}({e.get('tamanio', 0)}) devolvió NULL{donde}", "bold red"
+    if tipo == "realloc" and e.get("movido"):
+        return f"realloc {numero}{donde}: el bloque se movió", "green"
+    return f"{tipo}({e.get('tamanio', 0)}) → {numero}{donde}", "green"
 
 
 def dibujar_registros(parada: ev.DepuracionDetenida | None) -> RenderableType:
@@ -116,7 +155,8 @@ class BishopView(VerticalScroll):
     DEFAULT_CSS = "BishopView Static { width: 1fr; }"
 
     def compose(self) -> ComposeResult:
-        yield Static(Text("Memoria: elegí una línea y pedí la foto con F12 o desde la paleta (bishop).", style="dim"))
+        yield Static(Text("Memoria: al depurar se actualiza en cada paso; si no, elegí una línea y pedí la foto "
+                          "con F12 o desde la paleta (bishop).", style="dim"))
 
     def mostrar(self, datos: Mapping[str, Any]) -> None:
         self.query_one(Static).update(dibujar_memoria(datos))
