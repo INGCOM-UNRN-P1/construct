@@ -189,8 +189,21 @@ class Depurador:
         return {v["name"]: v.get("value", "") for v in datos.get("variables", [])}
 
     async def evaluar(self, expresion: str) -> str:
-        escapada = expresion.replace("\\", "\\\\").replace('"', '\\"')
-        return str((await self.mi.comando(f'-data-evaluate-expression "{escapada}"')).get("value", ""))
+        return str((await self.mi.comando(f'-data-evaluate-expression "{_escapar_mi(expresion)}"')).get("value", ""))
+
+    async def consola(self, orden: str) -> dict[str, Any]:
+        """Un comando de la consola de GDB (`-interpreter-exec console`)."""
+        return await self.mi.comando(f'-interpreter-exec console "{_escapar_mi(orden)}"')
+
+    async def cargar_bishop(self, script: str, raiz: str) -> None:
+        """Carga el módulo de bishop (`bishop gdb-script`) y sigue malloc y free del código bajo `raiz`
+        sin detener el programa. Va antes de correr (Ola 42)."""
+        await self.consola(f"source {script}")
+        await self.consola(f'bishop-seguir "{_escapar_mi(raiz)}"')
+
+    async def memoria(self, archivo: str) -> None:
+        """bishop escribe en `archivo` (JSON, en la máquina de GDB) la memoria de la parada actual."""
+        await self.consola(f'bishop-memoria "{_escapar_mi(archivo)}"')
 
     async def salir(self) -> None:
         with contextlib.suppress(ErrorDeDepuracion, ConnectionError):
@@ -262,6 +275,10 @@ async def HostGdbBackend(gdb: str, binario_local: str, comando_gdbserver: Sequen
         await depurador.mi.comando(comando)
     await depurador.mi.comando("-target-select remote | " + " ".join(_citar(p) for p in comando_gdbserver), timeout=60)
     return depurador
+
+
+def _escapar_mi(texto: str) -> str:
+    return texto.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _citar(parte: str) -> str:

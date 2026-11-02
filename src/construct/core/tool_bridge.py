@@ -121,6 +121,38 @@ def argv_bishop(fuente: str, linea: int) -> list[str]:
     return ["bishop", "snapshot", fuente, "--line", str(linea), "--json"]
 
 
+def argv_bishop_gdb() -> list[str]:
+    """Ruta, en el Guest, del módulo de bishop que la sesión de GDB carga para ver la memoria en cada paso."""
+    return ["bishop", "gdb-script"]
+
+
+def memoria_en_vivo(datos: Mapping[str, Any]) -> dict[str, Any]:
+    """La foto de `bishop-memoria` con los totales y las referencias de `bishop snapshot --json`.
+
+    En vivo, bishop da los marcos, los bloques (con su número, su línea y `alcanzable: false` si ya
+    nadie los apunta) y los eventos del heap; quién apunta a cada bloque, los bytes activos y las
+    fugas se cuentan acá, como `completar_referencias` de bishop.
+    """
+    heap = [dict(b) for b in datos.get("heap", []) if isinstance(b, Mapping)]
+    por_direccion = {str(b.get("direccion", "")).lower(): b for b in heap}
+    for b in heap:
+        b["punteros_referenciantes"] = []
+    for marco in datos.get("frames", []):
+        for v in marco.get("variables", []) if isinstance(marco, Mapping) else []:
+            bloque = por_direccion.get(str(v.get("direccion_apuntada") or "").lower())
+            if bloque is not None and v.get("nombre") not in bloque["punteros_referenciantes"]:
+                bloque["punteros_referenciantes"].append(v.get("nombre"))
+    for origen in heap:
+        for saliente in origen.get("punteros_salientes", []):
+            bloque = por_direccion.get(str(saliente.get("destino", "")).lower())
+            if bloque is not None:
+                bloque["punteros_referenciantes"].append(f"{origen.get('direccion')}.{saliente.get('campo', '')}")
+    vivos = [b for b in heap if not b.get("esta_liberado")]
+    return {**datos, "heap": heap, "total_bloques_heap": len(vivos),
+            "total_bytes_heap_activos": sum(int(b.get("tamanio_bytes") or 0) for b in vivos),
+            "fugas_detectadas": sum(1 for b in vivos if not b["punteros_referenciantes"])}
+
+
 def argv_prueba(prueba: str, fuentes: Iterable[str]) -> tuple[list[str], str]:
     """Compila una suite de treadstone con el código del alumno (sin su main) y p1_test."""
     binario = f"{CARPETA_PRUEBAS}/{PurePosixPath(prueba).stem}"

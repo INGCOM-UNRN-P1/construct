@@ -200,6 +200,7 @@ class Orquestador:
         self._breakpoints: dict[tuple[str, int], int | None] = {}  # (archivo, línea) → número en GDB
         self._depurador: Depurador | None = None
         self._salida_vista = 0
+        self._memoria_viva = False  # la sesión de GDB cargó el módulo de bishop
         self._ultimo_crash: tuple[str, tuple[str, ...], bytes] | None = None
 
     async def atender(self, comandos: asyncio.Queue[ev.Comando | None]) -> None:
@@ -456,6 +457,7 @@ class Orquestador:
         await self.proyecto.canal.escribir_archivo(entrada, comando.entrada)
         depurador = await GuestGdbBackend(self.proyecto.canal, f"./{puente.BINARIO_DEPURAR}", cwd=self.proyecto.vm)
         self._depurador, self._salida_vista = depurador, 0
+        self._memoria_viva = await self._cargar_bishop(depurador)
         await depurador.fijar_argumentos(comando.argumentos, entrada)
         for archivo, linea in list(self._breakpoints):
             self._breakpoints[(archivo, linea)] = await depurador.breakpoint(archivo, linea)
@@ -475,6 +477,30 @@ class Orquestador:
         lectura = Lectura(resultado.ok, leida.hallazgos, leida.datos, crudo, resultado.codigo)
         self._publicar("daedalus", lectura)
         return lectura
+
+    async def _cargar_bishop(self, depurador: Depurador) -> bool:
+        """El módulo de bishop en la sesión de GDB, para ver la memoria en cada paso (Ola 42). Sin
+        bishop (o con uno anterior a `gdb-script`) queda la foto aparte con F12."""
+        resultado = await self.proyecto.correr(puente.argv_bishop_gdb())
+        script = resultado.texto().strip().splitlines()[-1:] if resultado.ok else []
+        if not script:
+            return False
+        try:
+            await depurador.cargar_bishop(script[0], self.proyecto.vm)
+        except ErrorDeDepuracion:
+            return False
+        return True
+
+    async def _memoria_de_la_parada(self, depurador: Depurador) -> None:
+        archivo = f"/tmp/construct-memoria-{id(self)}.json"  # uno por sesión: se pisa en cada parada
+        try:
+            await depurador.memoria(archivo)
+            datos = json.loads(await self.proyecto.canal.leer_archivo(archivo))
+        except (ErrorDeDepuracion, ErrorRemoto, ValueError) as error:
+            self.emitir(ev.SalidaDeHerramienta("bishop", f"no se pudo leer la memoria de esta parada: {error}"))
+            return
+        if isinstance(datos, dict):
+            self.emitir(ev.MemoriaBishop(MappingProxyType(puente.memoria_en_vivo(datos)), en_vivo=True))
 
     def _salida_de_depuracion(self) -> None:
         if self._depurador is None:
@@ -499,6 +525,8 @@ class Orquestador:
         motivo = f"señal {detencion.senal}" if detencion.senal else detencion.motivo
         self.emitir(ev.DepuracionDetenida(motivo, puente.ruta_en_host(detencion.archivo, self.proyecto.vm),
                                           detencion.linea, detencion.funcion, pila, variables))
+        if self._memoria_viva:
+            await self._memoria_de_la_parada(depurador)
 
     async def _memoria(self, comando: ev.InspeccionarMemoria) -> tuple[bool, str]:
         resultado = await self.proyecto.correr(puente.argv_bishop(comando.archivo, comando.linea),

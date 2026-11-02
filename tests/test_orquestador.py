@@ -312,6 +312,56 @@ def test_memoria_con_bishop(agente_compilado: Path, herramientas: Path, tmp_path
     assert eventos[-1] == ev.TareaTerminada(ev.Tarea.MEMORIA, True, "bishop: 1 bloque(s) en el heap")
 
 
+HEAP = """#include <stdlib.h>
+
+typedef struct nodo { int dato; struct nodo *sig; } nodo_t;
+
+int main(void)
+{
+    nodo_t *a = malloc(sizeof(nodo_t));
+    a->dato = 1;
+    a->sig = NULL;
+    int *perdido = malloc(sizeof(int));
+    perdido = NULL;
+    free(a);
+    return 0;
+}
+"""
+
+# El módulo de bishop que la sesión de GDB carga para ver la memoria en cada paso (Ola 42), del
+# repositorio vecino: en el Guest lo da `bishop gdb-script`.
+MODULO_BISHOP = Path(__file__).resolve().parents[2] / "bishop" / "src" / "bishop" / "gdb_memoria.py"
+
+
+@pytest.mark.skipif(shutil.which("gdb") is None or not MODULO_BISHOP.is_file(),
+                    reason="hace falta gdb en el Host de pruebas y bishop al lado de construct")
+def test_memoria_en_vivo_en_cada_paso(agente_compilado: Path, herramientas: Path, tmp_path: Path) -> None:
+    (herramientas / "bishop").write_text(f"#!/bin/sh\necho '{MODULO_BISHOP}'\n", encoding="utf-8")
+    (herramientas / "bishop").chmod(0o755)
+
+    async def prueba() -> list[ev.Evento]:
+        async with orquestador(agente_compilado, tmp_path, HEAP) as (orq, eventos, _):
+            await orq.ejecutar(ev.AlternarBreakpoint("main.c", 11))
+            await orq.ejecutar(ev.Depurar())
+            await orq.ejecutar(ev.Avanzar(ev.Paso.SIGUIENTE))
+            await orq.ejecutar(ev.Avanzar(ev.Paso.SIGUIENTE))
+            await orq.ejecutar(ev.TerminarDepuracion())
+            return eventos
+
+    eventos = correr(prueba)
+    memorias = de_tipo(eventos, ev.MemoriaBishop)
+    assert [m.en_vivo for m in memorias] == [True, True, True]
+    primera, segunda, tercera = (m.datos for m in memorias)
+    assert primera["linea"] == 11 and [e["tipo"] for e in primera["eventos"]] == ["malloc", "malloc"]
+    assert primera["fugas_detectadas"] == 0
+    # `perdido = NULL`: el bloque #2 ya no lo apunta nadie.
+    assert segunda["fugas_detectadas"] == 1
+    assert next(b for b in segunda["heap"] if b["id"] == 2)["alcanzable"] is False
+    # free(a): el evento y `a` colgando de un bloque liberado.
+    assert [(e["tipo"], e["id"]) for e in tercera["eventos"]] == [("free", 1)]
+    assert next(b for b in tercera["heap"] if b["id"] == 1)["esta_liberado"]
+
+
 def test_guardar_reproductor_del_ultimo_crash(agente_compilado: Path, herramientas: Path, tmp_path: Path) -> None:
     reproductor = r"""#!/bin/sh
 salida=reproducer.sh

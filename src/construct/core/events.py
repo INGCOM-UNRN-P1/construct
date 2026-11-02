@@ -287,9 +287,13 @@ class DepuracionTerminada:
 
 @dataclass(frozen=True)
 class MemoriaBishop:
-    """El snapshot de bishop (`frames`/`stack`, `heap`, `fugas_detectadas`…) para `bishop_view`."""
+    """El snapshot de bishop (`frames`/`stack`, `heap`, `fugas_detectadas`…) para `bishop_view`.
+
+    `en_vivo`: la memoria de la parada actual de la depuración (Ola 42), no una foto pedida con F12.
+    """
 
     datos: Mapping[str, Any]
+    en_vivo: bool = False
 
 
 Evento = (TareaIniciada | TareaTerminada | ErrorDeTarea | HallazgosRecibidos | SalidaDeHerramienta | SalidaPrograma

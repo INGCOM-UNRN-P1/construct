@@ -134,6 +134,15 @@ hallazgos (con «Explicar» por IA y el autofix de `gaff`) y la consola con la e
 programa, las pruebas de `treadstone` y el consumo de recursos. Si el programa se cae, `hal`
 explica por qué en una ventana.
 
+Al depurar, la memoria se actualiza en cada paso. La toma `bishop` desde la misma sesión de GDB,
+sin volver a correr el programa (ver `bishop gdb-script`). Se ve:
+
+- la pila con sus variables;
+- cada bloque del heap con su número y la línea que lo pidió;
+- los punteros entre bloques;
+- las fugas, que son los bloques que ya nadie apunta;
+- los `malloc` y `free` desde la parada anterior.
+
 | Acción | Atajo | Alternativa |
 | :--- | :--- | :--- |
 | Ejecutar / continuar la depuración | `F5` | `Ctrl+R` |

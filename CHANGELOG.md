@@ -53,6 +53,11 @@ versiones según [SemVer](https://semver.org/lang/es/).
 - **setup**: `construct setup --imagen CARPETA` instala una imagen construida con `build_vm.sh` sin
   bajarla ni armar un release.
 
+- **gdb/ui**: memoria en vivo al depurar (Ola 42). La sesión de GDB del Guest carga el módulo de bishop
+  (`bishop gdb-script`). En cada parada, la vista de memoria se actualiza sin cambiar de pestaña, con los
+  bloques numerados por su línea, las fugas y los `malloc`/`free` desde la parada anterior. F12 sigue
+  tomando la foto aparte.
+
 ### Corregido
 
 - **bridge**: la entrada escrita mientras el programa compila ya no se pierde.
