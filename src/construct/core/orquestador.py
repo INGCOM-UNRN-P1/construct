@@ -542,7 +542,7 @@ class Orquestador:
 
     async def _reproductor(self) -> tuple[bool, str]:
         if self._ultimo_crash is None:
-            raise ValueError("no hay un crash para reproducir: ejecutá el programa primero.")
+            raise ValueError("no hay una falla para reproducir: ejecutá el programa primero.")
         binario, argumentos, entrada = self._ultimo_crash
         resultado = await self.proyecto.correr(puente.argv_reproductor(f"./{binario}", argumentos,
                                                                        entrada.decode(errors="replace")))

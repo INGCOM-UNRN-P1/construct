@@ -382,7 +382,7 @@ echo '{"ok": true}'
             return eventos, orq.proyecto.carpeta
 
     eventos, carpeta = correr(prueba)
-    assert isinstance(eventos[1], ev.ErrorDeTarea) and "no hay un crash" in eventos[1].mensaje
+    assert isinstance(eventos[1], ev.ErrorDeTarea) and "no hay una falla" in eventos[1].mensaje
     assert eventos[-1] == ev.TareaTerminada(ev.Tarea.REPRODUCTOR, True,
                                             "hal_reproducer.sh guardado en .construct/artefactos/")
     assert (carpeta / ".construct" / "artefactos" / "hal_reproducer.sh").is_file()
